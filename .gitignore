@@ -1,0 +1,15 @@
+# secrets / keys
+*.pem
+id_*
+!id_*.pub
+*.tfvars
+!example.tfvars
+.env
+
+# terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+tfplan
+*.tfplan
+crash.log
