@@ -2,7 +2,7 @@
 
 Current state of the lab hardware. Phase docs record when and why things changed; this page always describes what is installed now.
 
-Last updated: 2026-10-29 (Phase 3, before GPU install).
+Last updated: 2026-11-01 (end of Phase 3).
 
 ## Proxmox host (`pve`, 192.168.1.10)
 
@@ -16,8 +16,8 @@ Last updated: 2026-10-29 (Phase 3, before GPU install).
 | NIC | Intel X550 dual-port 10GBASE-T (third-party board), `ixgbe` | Ports pinned by MAC as `nic0` (uplink, `vmbr0`) and `nic1` (reserved). Links at 1 Gb/s to the router |
 | Onboard NIC | Intel I219-V | Dead: `e1000e` fails to initialize it. Unused |
 | iGPU | Intel HD Graphics 530 | Host console; primary display |
-| GPU | ASUS ROG Strix RTX 3080 (10 GB) | **Pending install** in the CPU x16 slot, for passthrough to a Linux VM |
-| PSU | Corsair RM750 (2019), model RPS0119, part CP-9020195, 750 W, 80+ Gold | **Pending swap** (waiting on its Type 4 24-pin and EPS cables). Uses Corsair Type 4 modular cables only |
+| GPU | ASUS ROG Strix RTX 3080 (10 GB), `10de:2206` / audio `10de:1aef` | CPU x16 slot. Bound to `vfio-pci` on the host for passthrough. Link trains at **x8** (see Known issues) |
+| PSU | Corsair RM750 (2019), model RPS0119, part CP-9020195, 750 W, 80+ Gold | Fully modular, Corsair Type 4 cables only. GPU on three separate PCIe cables |
 
 Location: network closet next to the router. In-wall cabling elsewhere in the house only supports 100 Mb/s.
 
@@ -52,15 +52,37 @@ ls /sys/class/iommu/          # dmar0 dmar1
 
 | Root port | Bus | Device | Slot |
 | --- | --- | --- | --- |
-| `00:01.0` (CPU) | — | Hidden while the slot is empty | CPU x16 slot: RTX 3080 (pending) |
-| `00:1b.0` (chipset) | 01 | Empty | Not yet mapped |
-| `00:1c.0` (chipset) | 02 | Empty | Not yet mapped |
-| `00:1c.4` (chipset) | 03 | Intel X550 (`03:00.0`, `03:00.1`) | Chipset x16 slot (x4 electrical) |
-| `00:1d.0` (chipset) | 04 | Empty | Not yet mapped |
+| `00:01.0` (CPU) | 01 | RTX 3080 (`01:00.0` video, `01:00.1` audio) | CPU x16 slot |
+| `00:1b.0` (chipset) | — | Empty | Not yet mapped |
+| `00:1c.0` (chipset) | — | Empty | Not yet mapped |
+| `00:1c.4` (chipset) | 04 | Intel X550 (`04:00.0`, `04:00.1`) | Chipset x16 slot (x4 electrical) |
+| `00:1d.0` (chipset) | — | Empty | Not yet mapped |
 
-IOMMU groups are recorded in [03-gpu-passthrough.md](03-gpu-passthrough.md) once the GPU is installed.
+Bus numbers for chipset devices can change when cards are added (the X550 moved from bus 03 to 04 when the GPU went in); interface names are pinned by MAC, so this doesn't affect networking.
 
-## Future second node (not built)
+IOMMU group 2 holds only the RTX 3080's two functions and its CPU root port; every chipset device is in its own group. Full listing in [03-gpu-passthrough.md](03-gpu-passthrough.md).
+
+## GPU passthrough configuration
+
+| Item | Value |
+| --- | --- |
+| Host binding | `/etc/modprobe.d/vfio.conf`: `options vfio-pci ids=10de:2206,10de:1aef`, `softdep nouveau pre: vfio-pci` |
+| Host blacklist | `/etc/modprobe.d/blacklist-nvidia.conf`: `nouveau`, `nvidiafb`, `nvidia` |
+| Modules at boot | `vfio`, `vfio_iommu_type1`, `vfio_pci` in `/etc/modules` |
+| Guest VM requirements | `q35`, OVMF with Secure Boot off, `hostpci0: 0000:01:00,pcie=1`, ballooning off, cloud-init drive on SCSI |
+| Guest driver | NVIDIA repository, 615.71.10 / CUDA 13.4 (open kernel module) |
+| Power tuning | `nvidia-smi -lgc 210,1650` in the guest: ~270 W and 65 °C sustained vs ~368 W at stock, for −2.8% inference speed. Runtime setting, applied at boot from Phase 5 |
+
+## Known issues
+
+| Issue | Detail |
+| --- | --- |
+| GPU PCIe link at x8 | `LnkCap` x16, but the link runs at x8 even under load, after one reseat. Suspect slot, board or card contacts. Low impact on inference |
+| Onboard I219-V NIC | Dead; unused |
+
+## Spare hardware
+
+Candidates for a second GPU. Not decided: a second node, a second GPU on this host via an x1 riser, or none.
 
 | Component | Detail |
 | --- | --- |
@@ -68,5 +90,7 @@ IOMMU groups are recorded in [03-gpu-passthrough.md](03-gpu-passthrough.md) once
 | CPU | None yet (AM4) |
 | GPU | EVGA RTX 3070 FTW3 (8 GB) |
 | RAM | Spare Corsair Vengeance LPX 16 GB DDR4-3000 CL15 (CMK16GX4M1B3000C15) |
+| Case | FormD T1 (Mini-ITX, SFX/SFX-L PSU only, GPU up to 325 mm and 3.25 slots, riser-mounted) |
+| PSU | Corsair CX750M (750 W, Bronze, semi-modular, ATX), removed from this host. Doesn't fit the T1 |
 
 AMD-Vi/IOMMU groups to be verified once a CPU is installed.

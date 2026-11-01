@@ -2,7 +2,7 @@
 
 A self-hosted home services platform built as code: Proxmox on bare metal, Terraform-provisioned VMs, k3s with GitOps deployment, a GPU-accelerated local LLM, and Prometheus/Grafana observability.
 
-Status: in progress. Phases 1–2 complete; Phase 3 (GPU passthrough) underway.
+Status: in progress. Phases 1–3 complete; the RTX 3080 is passed through to a Linux VM and validated under sustained load.
 
 ## Architecture
 
@@ -43,9 +43,9 @@ flowchart TB
 | --- | --- | --- | --- |
 | 1 | Proxmox on bare metal: storage, networking, cloud-init template | Done | [01-proxmox.md](docs/01-proxmox.md) |
 | 2 | Terraform provisioning with a least-privilege API token | Done | [02-terraform.md](docs/02-terraform.md) |
-| 3 | GPU hardware validation and passthrough (gate) | In progress | [03-gpu-passthrough.md](docs/03-gpu-passthrough.md) |
+| 3 | GPU hardware validation and passthrough (gate) | Done | [03-gpu-passthrough.md](docs/03-gpu-passthrough.md) |
 | 4 | Ansible + k3s, GitOps bootstrap, nightly VM backups to NAS | Planned | |
-| 5 | GPU workloads on k3s: NVIDIA stack, local LLM | Planned | |
+| 5 | GPU workloads on k3s: NVIDIA stack, local LLM (Ollama, then vLLM; models benchmarked across both) | Planned | |
 | 6 | Observability: metrics, logs, GPU metrics, alerts, one SLO | Planned | |
 | 7 | CI with progressive delivery and automated rollback | Planned | |
 | 8 | Backups, restore drills, failure drills, postmortems | Planned | |
