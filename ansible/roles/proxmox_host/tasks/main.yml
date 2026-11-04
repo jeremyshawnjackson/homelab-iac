@@ -1,0 +1,172 @@
+---
+# --- APT repositories -------------------------------------------------------
+
+- name: Install the library the deb822 repository module needs
+  ansible.builtin.apt:
+    name: python3-debian
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+# Replaces Phase 1's 'sed /^Types:/a Enabled: no', which appended a duplicate
+# line on every run.
+- name: Configure the APT repositories
+  ansible.builtin.deb822_repository:
+    name: "{{ item.name }}"
+    types: [deb]
+    uris: "{{ item.uris }}"
+    suites: ["{{ proxmox_suite }}"]
+    components: "{{ item.components }}"
+    signed_by: /usr/share/keyrings/proxmox-archive-keyring.gpg
+    enabled: "{{ item.enabled }}"
+  loop: "{{ proxmox_repositories }}"
+  loop_control:
+    label: "{{ item.name }}"
+  notify: Update apt cache
+
+# --- GPU passthrough on the host -------------------------------------------
+
+- name: Bind the GPU to vfio-pci
+  ansible.builtin.copy:
+    dest: /etc/modprobe.d/vfio.conf
+    mode: "0644"
+    content: |
+      options vfio-pci ids={{ vfio_pci_ids }}
+      softdep nouveau pre: vfio-pci
+  notify: Rebuild the initramfs
+
+- name: Blacklist the host NVIDIA drivers
+  ansible.builtin.copy:
+    dest: /etc/modprobe.d/blacklist-nvidia.conf
+    mode: "0644"
+    content: |
+      {% for mod in nvidia_blacklist %}
+      blacklist {{ mod }}
+      {% endfor %}
+  notify: Rebuild the initramfs
+
+- name: Load the VFIO modules at boot
+  ansible.builtin.lineinfile:
+    path: /etc/modules
+    line: "{{ item }}"
+    state: present
+  loop: "{{ vfio_modules }}"
+  notify: Rebuild the initramfs
+
+# --- GPU as a cluster resource, usable by a scoped API token ----------------
+
+- name: Read the cluster PCI resource mappings
+  ansible.builtin.command: pvesh get /cluster/mapping/pci --output-format json
+  register: pci_mappings
+  changed_when: false
+
+- name: Map the GPU as a cluster resource
+  ansible.builtin.command: >
+    pvesh create /cluster/mapping/pci
+    --id {{ gpu_mapping_name }}
+    --description "RTX 3080, both functions"
+    --map node={{ inventory_hostname }},path={{ gpu_pci_path }},id={{ gpu_pci_id }}
+  when: gpu_mapping_name not in (pci_mappings.stdout | from_json | map(attribute='id') | list)
+
+- name: Read the configured roles
+  ansible.builtin.command: pvesh get /access/roles --output-format json
+  register: pve_roles
+  changed_when: false
+
+- name: Create a role that can only use mapped devices
+  ansible.builtin.command: >
+    pveum role add {{ terraform_mapping_role }} --privs "Mapping.Audit,Mapping.Use"
+  when: terraform_mapping_role not in (pve_roles.stdout | from_json | map(attribute='roleid') | list)
+
+- name: Read the access control list
+  ansible.builtin.command: pvesh get /access/acl --output-format json
+  register: pve_acl
+  changed_when: false
+
+# Scoped to this one mapping, not to '/': Terraform can attach this GPU and
+# nothing else.
+- name: Grant Terraform use of the GPU mapping
+  ansible.builtin.command: >
+    pveum acl modify /mapping/pci/{{ gpu_mapping_name }}
+    --user {{ terraform_user }} --role {{ terraform_mapping_role }}
+  when: >
+    pve_acl.stdout | from_json
+    | selectattr('path', 'equalto', '/mapping/pci/' ~ gpu_mapping_name)
+    | selectattr('roleid', 'equalto', terraform_mapping_role)
+    | list | length == 0
+
+# --- cloud-init vendor-data -------------------------------------------------
+
+- name: Ensure the snippet store exists
+  ansible.builtin.file:
+    path: "{{ snippet_store_path }}"
+    state: directory
+    mode: "0755"
+
+# Merged with the user-data Terraform generates, so a new VM has a working
+# guest agent before Terraform finishes waiting for one.
+- name: Install the guest-agent vendor-data snippet
+  ansible.builtin.copy:
+    dest: "{{ snippet_store_path }}/{{ vendor_data_file }}"
+    mode: "0644"
+    content: |
+      #cloud-config
+      package_update: true
+      packages:
+        - qemu-guest-agent
+
+# --- Nightly backups to the NAS --------------------------------------------
+
+- name: Check whether the NAS backup storage is configured
+  ansible.builtin.command: pvesh get /storage/{{ backup_storage }} --output-format json
+  register: nas_storage
+  changed_when: false
+  failed_when: false
+
+- name: Explain how to add the NAS storage if it is missing
+  ansible.builtin.fail:
+    msg: >-
+      Storage '{{ backup_storage }}' does not exist. Add it once by hand, so the
+      NAS password is never stored in this repository:
+      pvesm add cifs {{ backup_storage }} --server {{ nas_server }}
+      --share {{ nas_share }} --subdir {{ nas_subdir }} --content backup
+      --username {{ nas_backup_user }} --smbversion 3
+      --prune-backups {{ backup_prune }}
+  when: nas_storage.rc != 0
+
+- name: Read the backup jobs
+  ansible.builtin.command: pvesh get /cluster/backup --output-format json
+  register: backup_jobs
+  changed_when: false
+
+- name: Select the nightly job, if it exists
+  ansible.builtin.set_fact:
+    nightly_job: >-
+      {{ backup_jobs.stdout | from_json
+         | selectattr('id', 'equalto', backup_job_id)
+         | list | first | default({}) }}
+
+- name: Create the nightly backup job
+  ansible.builtin.command: >
+    pvesh create /cluster/backup
+    --id {{ backup_job_id }}
+    --schedule "{{ backup_schedule }}"
+    --storage {{ backup_storage }}
+    --mode snapshot
+    --compress zstd
+    --all 1
+    --exclude {{ backup_exclude }}
+    --prune-backups {{ backup_prune }}
+    --enabled 1
+  when: not nightly_job
+
+# Converges the two fields most likely to be edited. Other options are set at
+# creation only; wrapping a CLI gives less convergence than a real module.
+- name: Keep the nightly job's schedule and target correct
+  ansible.builtin.command: >
+    pvesh set /cluster/backup/{{ backup_job_id }}
+    --schedule "{{ backup_schedule }}"
+    --storage {{ backup_storage }}
+  when:
+    - nightly_job | length > 0
+    - nightly_job.schedule != backup_schedule or nightly_job.storage != backup_storage

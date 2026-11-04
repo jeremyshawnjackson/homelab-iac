@@ -1,0 +1,57 @@
+---
+# PVE 9 is Debian 13 "Trixie".
+proxmox_suite: trixie
+
+# A disabled stanza's URI is never fetched, so the enterprise entries only
+# need to be present and off, not to match Proxmox's shipped values.
+proxmox_repositories:
+  - name: proxmox
+    uris: http://download.proxmox.com/debian/pve
+    components: [pve-no-subscription]
+    enabled: true
+  - name: pve-enterprise
+    uris: https://enterprise.proxmox.com/debian/pve
+    components: [pve-enterprise]
+    enabled: false
+  - name: ceph
+    uris: https://enterprise.proxmox.com/debian/ceph-squid
+    components: [enterprise]
+    enabled: false
+
+# RTX 3080 video and audio functions. Bound to vfio-pci at boot so the host
+# never initialises the card.
+vfio_pci_ids: "10de:2206,10de:1aef"
+vfio_modules:
+  - vfio
+  - vfio_iommu_type1
+  - vfio_pci
+nvidia_blacklist:
+  - nouveau
+  - nvidiafb
+  - nvidia
+
+# Cluster PCI resource mapping. Terraform attaches the GPU by this name, which
+# is what lets a non-root API token do it at all.
+gpu_mapping_name: gpu-3080
+gpu_pci_path: "0000:01:00" # no function number: both video and audio
+gpu_pci_id: "10de:2206"
+terraform_user: "terraform@pve"
+terraform_mapping_role: TerraformMapping
+
+# cloud-init vendor-data, referenced by Terraform when it builds a VM.
+snippet_store_path: /mnt/pve/bulk/snippets
+vendor_data_file: qga-vendor-data.yaml
+
+# NAS connection. The password is deliberately absent: see the role.
+nas_server: 192.168.1.2
+nas_share: backup
+nas_subdir: /proxmox
+nas_backup_user: svc-pve-backup
+
+# Nightly vzdump to the NAS. The template is excluded: it is reproducible
+# from the upstream cloud image.
+backup_storage: nas-backup
+backup_job_id: homelab-nightly
+backup_schedule: "02:30"
+backup_prune: "keep-daily=7,keep-weekly=4"
+backup_exclude: "9000"

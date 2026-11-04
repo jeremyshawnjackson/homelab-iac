@@ -1,0 +1,8 @@
+---
+- name: Update apt cache
+  ansible.builtin.apt:
+    update_cache: true
+
+# Drivers can load from the initramfs, so the vfio settings must be in it too.
+- name: Rebuild the initramfs
+  ansible.builtin.command: update-initramfs -u -k all
