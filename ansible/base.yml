@@ -1,0 +1,6 @@
+---
+- name: Base configuration for all lab VMs
+  hosts: vms
+  become: true
+  roles:
+    - base

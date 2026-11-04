@@ -13,3 +13,13 @@ id_*
 tfplan
 *.tfplan
 crash.log
+
+# ansible
+ansible/known_hosts
+ansible/*.retry
+ansible/fetch/
+.vault_pass
+
+# kubernetes
+kubeconfig
+*.kubeconfig

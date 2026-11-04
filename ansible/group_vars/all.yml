@@ -1,0 +1,3 @@
+---
+# Servers run in UTC; logs and metrics across hosts compare without conversion.
+host_timezone: Etc/UTC

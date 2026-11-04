@@ -12,7 +12,7 @@ resource "proxmox_virtual_environment_vm" "mgmt" {
   }
 
   agent {
-    enabled = false
+    enabled = true # agent package installed by Ansible (roles/base)
   }
 
   cpu {

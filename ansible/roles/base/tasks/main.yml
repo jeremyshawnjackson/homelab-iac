@@ -1,0 +1,54 @@
+---
+# Terraform reports a VM "created" the moment Proxmox starts it. These two
+# tasks are the gate between created and ready.
+- name: Wait for SSH to answer
+  ansible.builtin.wait_for_connection:
+    timeout: 300
+
+- name: Wait for cloud-init to finish first boot
+  ansible.builtin.command: cloud-init status --wait
+  register: cloud_init
+  changed_when: false
+  # 2 = finished with recoverable errors; anything else is a real failure.
+  failed_when: cloud_init.rc not in [0, 2]
+
+- name: Set timezone
+  community.general.timezone:
+    name: "{{ host_timezone }}"
+
+- name: Install base packages
+  ansible.builtin.apt:
+    name: "{{ base_packages }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+# Without this, Proxmox cannot read the guest IP and vzdump cannot fsfreeze
+# the filesystem, so snapshot backups would only be crash-consistent.
+- name: Enable the QEMU guest agent
+  ansible.builtin.systemd_service:
+    name: qemu-guest-agent
+    enabled: true
+    state: started
+
+- name: Apply security updates unattended, without rebooting
+  ansible.builtin.copy:
+    dest: /etc/apt/apt.conf.d/20auto-upgrades
+    mode: "0644"
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+      APT::Periodic::AutocleanInterval "7";
+  notify: Restart unattended-upgrades
+
+# Key auth is the only way in. Reboots must not reopen a password prompt.
+- name: Harden sshd
+  ansible.builtin.copy:
+    dest: /etc/ssh/sshd_config.d/10-homelab.conf
+    mode: "0644"
+    validate: /usr/sbin/sshd -t -f %s
+    content: |
+      PasswordAuthentication no
+      KbdInteractiveAuthentication no
+      PermitRootLogin no
+  notify: Restart sshd

@@ -1,0 +1,3 @@
+# Everything in this repo is consumed on Linux. Normalise to LF in the
+# repository and in every working tree, regardless of core.autocrlf.
+* text=auto eol=lf
