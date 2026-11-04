@@ -6,3 +6,9 @@
 # Drivers can load from the initramfs, so the vfio settings must be in it too.
 - name: Rebuild the initramfs
   ansible.builtin.command: update-initramfs -u -k all
+
+# next-run for every backup job is computed against the host clock.
+- name: Restart the scheduler
+  ansible.builtin.systemd_service:
+    name: pvescheduler
+    state: restarted

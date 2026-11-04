@@ -1,4 +1,13 @@
 ---
+# --- Host basics ------------------------------------------------------------
+
+# vzdump schedules are evaluated in the host's local timezone, and the guests
+# are all on UTC.
+- name: Set the host timezone
+  community.general.timezone:
+    name: "{{ host_timezone }}"
+  notify: Restart the scheduler
+
 # --- APT repositories -------------------------------------------------------
 
 - name: Install the library the deb822 repository module needs
