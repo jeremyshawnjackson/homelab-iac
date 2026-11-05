@@ -44,3 +44,9 @@ variable "vendor_data_file_id" {
   description = "cloud-init vendor-data snippet, written by ansible/roles/proxmox_host"
   default     = "bulk:snippets/qga-vendor-data.yaml"
 }
+
+variable "ansible_public_key" {
+  type        = string
+  description = "Public key of the automation keypair on the mgmt VM, so Ansible can reach the nodes it manages"
+  default     = ""
+}

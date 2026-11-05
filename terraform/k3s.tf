@@ -45,6 +45,7 @@ resource "proxmox_virtual_environment_vm" "k3s" {
 
   agent {
     enabled = true # installed on first boot by the vendor-data snippet
+    timeout = "5m" # a bootstrap that has not finished by then has failed
   }
 
   cpu {
@@ -123,7 +124,8 @@ resource "proxmox_virtual_environment_vm" "k3s" {
 
     user_account {
       username = "admin"
-      keys     = [var.ssh_public_key]
+      # The workstation key is for people; the mgmt key is how Ansible gets in.
+      keys = compact([var.ssh_public_key, var.ansible_public_key])
     }
 
     # Written by ansible/roles/proxmox_host, merged with the user-data above.

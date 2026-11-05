@@ -159,6 +159,11 @@
       package_update: true
       packages:
         - qemu-guest-agent
+      # The unit is static and udev-activated: the virtio port event fires at
+      # boot, before this package exists, so nothing ever pulls the service in.
+      # Start it here rather than leaving it until the next reboot.
+      runcmd:
+        - [systemctl, start, qemu-guest-agent]
 
 # --- Nightly backups to the NAS --------------------------------------------
 
