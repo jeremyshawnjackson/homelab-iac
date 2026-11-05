@@ -1,0 +1,91 @@
+---
+- name: Create the k3s configuration directory
+  ansible.builtin.file:
+    path: /etc/rancher/k3s
+    state: directory
+    mode: "0755"
+
+# Flags baked into the systemd unit by the installer can only be changed by
+# running the installer again. Anything that might change lives here, so a
+# change is a file diff and a restart.
+- name: Write the server configuration
+  ansible.builtin.copy:
+    dest: /etc/rancher/k3s/config.yaml
+    mode: "0600"
+    content: |
+      node-ip: {{ k3s_server_ip }}
+      # The kubeconfig's server URL and the API certificate must agree, or
+      # kubectl from anywhere but the node itself fails verification.
+      tls-san:
+        - {{ k3s_server_ip }}
+      write-kubeconfig-mode: "0600"
+      # Secrets are otherwise stored in the datastore in plain text.
+      secrets-encryption: true
+  notify: Restart k3s
+
+- name: Fetch the k3s installer
+  ansible.builtin.get_url:
+    url: https://get.k3s.io
+    dest: "{{ k3s_installer }}"
+    mode: "0755"
+
+- name: Read the installed k3s version
+  ansible.builtin.command: k3s --version
+  register: k3s_installed
+  changed_when: false
+  failed_when: false
+
+# Comparing versions rather than using 'creates:' means this task also
+# performs upgrades when the pinned version moves.
+- name: Install or upgrade the k3s server
+  ansible.builtin.command: "{{ k3s_installer }}"
+  environment:
+    INSTALL_K3S_VERSION: "{{ k3s_version }}"
+  when: k3s_version not in k3s_installed.stdout
+
+- name: Wait for the API server to answer
+  ansible.builtin.wait_for:
+    port: 6443
+    host: "{{ k3s_server_ip }}"
+    timeout: 120
+
+- name: Create the admin kubeconfig directory
+  ansible.builtin.file:
+    path: /home/admin/.kube
+    state: directory
+    owner: admin
+    group: admin
+    mode: "0700"
+
+- name: Read the generated kubeconfig
+  ansible.builtin.slurp:
+    src: /etc/rancher/k3s/k3s.yaml
+  register: k3s_kubeconfig
+
+- name: Give admin a kubeconfig on the node
+  ansible.builtin.copy:
+    content: "{{ k3s_kubeconfig.content | b64decode }}"
+    dest: /home/admin/.kube/config
+    owner: admin
+    group: admin
+    mode: "0600"
+
+# k3s writes 127.0.0.1 as the server URL, which is only true on the node
+# itself. tls-san above is what makes the rewritten address verify.
+- name: Create the kubeconfig directory on the control node
+  ansible.builtin.file:
+    path: /home/admin/.kube
+    state: directory
+    mode: "0700"
+  delegate_to: mgmt
+  become: false
+
+- name: Install the kubeconfig on the control node
+  ansible.builtin.copy:
+    content: >-
+      {{ k3s_kubeconfig.content | b64decode
+         | replace('127.0.0.1', k3s_server_ip) }}
+    dest: /home/admin/.kube/config
+    mode: "0600"
+  delegate_to: mgmt
+  become: false

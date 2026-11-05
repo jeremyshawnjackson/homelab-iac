@@ -1,0 +1,10 @@
+---
+# Pinned, not "stable": a rebuild must produce the cluster this repo describes,
+# not whatever was released since. Bump deliberately.
+k3s_version: "v1.37.2+k3s1"
+
+# The inventory is the single source of truth for addresses.
+k3s_server_ip: "{{ hostvars['k3s-server'].ansible_host }}"
+k3s_url: "https://{{ k3s_server_ip }}:6443"
+
+k3s_installer: /usr/local/share/k3s-install.sh
