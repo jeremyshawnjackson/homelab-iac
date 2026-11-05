@@ -1,0 +1,5 @@
+---
+# kubectl is supported one minor version either side of the API server, so it
+# tracks the cluster's minor rather than being pinned independently.
+kubectl_minor: "{{ k3s_version | regex_search('^v[0-9]+\.[0-9]+') }}"
+kubectl_repo_uri: "https://pkgs.k8s.io/core:/stable:/{{ kubectl_minor }}/deb/"

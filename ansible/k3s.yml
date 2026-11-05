@@ -4,3 +4,9 @@
   become: true
   roles:
     - k3s_server
+
+- name: Control node tooling
+  hosts: bastion
+  become: true
+  roles:
+    - kubectl

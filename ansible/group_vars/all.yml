@@ -1,3 +1,8 @@
 ---
 # Servers run in UTC; logs and metrics across hosts compare without conversion.
 host_timezone: Etc/UTC
+
+# Pinned, not "stable": a rebuild must produce the cluster this repo describes,
+# not whatever was released since. Bump deliberately. The control node's
+# kubectl tracks the same minor version.
+k3s_version: "v1.37.2+k3s1"

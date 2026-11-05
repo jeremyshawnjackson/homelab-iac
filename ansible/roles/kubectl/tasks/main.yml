@@ -1,0 +1,36 @@
+---
+- name: Install the library the deb822 repository module needs
+  ansible.builtin.apt:
+    name: python3-debian
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Create the apt keyring directory
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: "0755"
+
+- name: Fetch the Kubernetes archive key
+  ansible.builtin.get_url:
+    url: "{{ kubectl_repo_uri }}/Release.key"
+    dest: /etc/apt/keyrings/kubernetes.asc
+    mode: "0644"
+
+# A flat repository: no components, and the suite is a bare '/'. The URI
+# carries the minor version, so the repo itself is the pin.
+- name: Configure the Kubernetes repository
+  ansible.builtin.deb822_repository:
+    name: kubernetes
+    types: [deb]
+    uris: "{{ kubectl_repo_uri }}"
+    suites: ["/"]
+    signed_by: /etc/apt/keyrings/kubernetes.asc
+    enabled: true
+
+- name: Install kubectl
+  ansible.builtin.apt:
+    name: kubectl
+    state: present
+    update_cache: true
