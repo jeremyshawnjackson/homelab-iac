@@ -22,3 +22,25 @@ variable "lan_gateway" {
   type    = string
   default = "192.168.1.254"
 }
+
+variable "k3s_server_ip" {
+  type    = string
+  default = "192.168.1.21/24"
+}
+
+variable "gpu_node_ip" {
+  type    = string
+  default = "192.168.1.22/24"
+}
+
+variable "gpu_mapping" {
+  type        = string
+  description = "Cluster PCI resource mapping the GPU node attaches, created by ansible/roles/proxmox_host"
+  default     = "gpu-3080"
+}
+
+variable "vendor_data_file_id" {
+  type        = string
+  description = "cloud-init vendor-data snippet, written by ansible/roles/proxmox_host"
+  default     = "bulk:snippets/qga-vendor-data.yaml"
+}

@@ -64,18 +64,54 @@
 
 # --- GPU as a cluster resource, usable by a scoped API token ----------------
 
+# Proxmox validates a mapping against the live device before it will start a
+# VM, and the IOMMU group is one of the properties it checks. Read it from the
+# host instead of pinning a number that changes when cards are added or moved.
+- name: Read the GPU's IOMMU group
+  ansible.builtin.command: readlink -f /sys/bus/pci/devices/{{ gpu_pci_path }}.0/iommu_group
+  register: gpu_iommu
+  changed_when: false
+
+- name: Build the desired mapping entry
+  ansible.builtin.set_fact:
+    gpu_map_entry: >-
+      node={{ inventory_hostname }},path={{ gpu_pci_path }},id={{ gpu_pci_id
+      }},iommugroup={{ gpu_iommu.stdout | basename }}
+
 - name: Read the cluster PCI resource mappings
   ansible.builtin.command: pvesh get /cluster/mapping/pci --output-format json
   register: pci_mappings
   changed_when: false
+
+- name: Select the GPU mapping, if it exists
+  ansible.builtin.set_fact:
+    gpu_mapping: >-
+      {{ pci_mappings.stdout | from_json
+         | selectattr('id', 'equalto', gpu_mapping_name)
+         | list | first | default({}) }}
+
+# Proxmox does not promise to store the properties in the order they were
+# given, so compare them as sorted sets rather than as strings.
+- name: Normalise both mappings for comparison
+  ansible.builtin.set_fact:
+    gpu_map_current: "{{ (gpu_mapping.map | default([]) | first | default('')).split(',') | sort | join(',') }}"
+    gpu_map_desired: "{{ gpu_map_entry.split(',') | sort | join(',') }}"
 
 - name: Map the GPU as a cluster resource
   ansible.builtin.command: >
     pvesh create /cluster/mapping/pci
     --id {{ gpu_mapping_name }}
     --description "RTX 3080, both functions"
-    --map node={{ inventory_hostname }},path={{ gpu_pci_path }},id={{ gpu_pci_id }}
-  when: gpu_mapping_name not in (pci_mappings.stdout | from_json | map(attribute='id') | list)
+    --map {{ gpu_map_entry }}
+  when: not gpu_mapping
+
+- name: Correct the GPU mapping if the hardware moved
+  ansible.builtin.command: >
+    pvesh set /cluster/mapping/pci/{{ gpu_mapping_name }}
+    --map {{ gpu_map_entry }}
+  when:
+    - gpu_mapping | length > 0
+    - gpu_map_current != gpu_map_desired
 
 - name: Read the configured roles
   ansible.builtin.command: pvesh get /access/roles --output-format json
