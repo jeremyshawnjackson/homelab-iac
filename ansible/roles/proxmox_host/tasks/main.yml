@@ -72,11 +72,21 @@
   register: gpu_iommu
   changed_when: false
 
+# Identifies the specific board, not just the chip: every RTX 3080 reports
+# 10de:2206, but only this one is 1043:xxxx.
+- name: Read the GPU's subsystem IDs
+  ansible.builtin.command: >
+    cat /sys/bus/pci/devices/{{ gpu_pci_path }}.0/subsystem_vendor
+    /sys/bus/pci/devices/{{ gpu_pci_path }}.0/subsystem_device
+  register: gpu_subsystem
+  changed_when: false
+
 - name: Build the desired mapping entry
   ansible.builtin.set_fact:
     gpu_map_entry: >-
       node={{ inventory_hostname }},path={{ gpu_pci_path }},id={{ gpu_pci_id
-      }},iommugroup={{ gpu_iommu.stdout | basename }}
+      }},iommugroup={{ gpu_iommu.stdout | basename
+      }},subsystem-id={{ gpu_subsystem.stdout_lines | map('replace', '0x', '') | join(':') }}
 
 - name: Read the cluster PCI resource mappings
   ansible.builtin.command: pvesh get /cluster/mapping/pci --output-format json
