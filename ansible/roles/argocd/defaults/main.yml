@@ -1,0 +1,21 @@
+---
+# The custom resources the Argo CD controllers watch. These live with the role
+# rather than in group_vars because they are a property of the upstream
+# manifest, not of the host running kubectl.
+argocd_crds:
+  - applications.argoproj.io
+  - applicationsets.argoproj.io
+  - appprojects.argoproj.io
+
+# Every workload the upstream manifest ships. Waiting only on argocd-server
+# lets the play report success while a sibling controller is failing.
+argocd_deployments:
+  - argocd-applicationset-controller
+  - argocd-dex-server
+  - argocd-notifications-controller
+  - argocd-redis
+  - argocd-repo-server
+  - argocd-server
+
+argocd_statefulsets:
+  - argocd-application-controller

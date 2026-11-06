@@ -31,10 +31,35 @@
     -f {{ argocd_manifest_url }}
   changed_when: false
 
-- name: Wait for the Argo CD server to be available
+# The manifest creates the CRDs and the controllers that watch them in a
+# single apply, and nothing orders the two. A controller that calls the API
+# server for a kind that is not established yet retries for the duration of
+# controller-runtime's cache-sync deadline and then exits non-zero, which the
+# kubelet sees as a crash loop. Blocking here removes the race.
+- name: Wait for the Argo CD CRDs to be established
   ansible.builtin.command: >
-    kubectl -n {{ argocd_namespace }} rollout status deployment/argocd-server
-    --timeout=300s
+    kubectl wait --for condition=established --timeout=120s
+    crd/{{ item }}
+  loop: "{{ argocd_crds }}"
+  changed_when: false
+
+# rollout status returns when a workload reports its replicas available, which
+# is a weaker claim than "healthy": a pod whose readiness probe passes before
+# it fails later still counts as available here. This catches a component that
+# never starts, not one that starts and then dies. Detecting the latter is
+# alerting's job, not a playbook's.
+- name: Wait for the Argo CD deployments to roll out
+  ansible.builtin.command: >
+    kubectl -n {{ argocd_namespace }} rollout status
+    deployment/{{ item }} --timeout=300s
+  loop: "{{ argocd_deployments }}"
+  changed_when: false
+
+- name: Wait for the Argo CD application controller to roll out
+  ansible.builtin.command: >
+    kubectl -n {{ argocd_namespace }} rollout status
+    statefulset/{{ item }} --timeout=300s
+  loop: "{{ argocd_statefulsets }}"
   changed_when: false
 
 # The only imperative object in the cluster's lifetime. Everything else
