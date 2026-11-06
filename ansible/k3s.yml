@@ -10,3 +10,9 @@
   become: true
   roles:
     - kubectl
+
+- name: k3s GPU node
+  hosts: k3s_gpu
+  become: true
+  roles:
+    - k3s_agent

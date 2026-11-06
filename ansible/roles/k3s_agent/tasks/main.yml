@@ -1,0 +1,78 @@
+---
+# The bootstrap secret lives on the server and is read at run time. It is
+# never written to the repository.
+- name: Read the cluster join token
+  ansible.builtin.slurp:
+    src: /var/lib/rancher/k3s/server/node-token
+  register: k3s_token
+  delegate_to: "{{ groups['k3s_server'] | first }}"
+
+- name: Create the k3s configuration directory
+  ansible.builtin.file:
+    path: /etc/rancher/k3s
+    state: directory
+    mode: "0755"
+
+# node-label and node-taint here only take effect at first registration;
+# the kubectl tasks below are what keep them true afterwards.
+- name: Write the agent configuration
+  ansible.builtin.copy:
+    dest: /etc/rancher/k3s/config.yaml
+    mode: "0600"
+    content: |
+      server: {{ k3s_url }}
+      token: {{ k3s_token.content | b64decode | trim }}
+      node-ip: {{ ansible_host }}
+      node-label:
+        - {{ gpu_label }}
+      node-taint:
+        - {{ gpu_taint }}
+  no_log: true # the file contains the join token
+  notify: Restart k3s-agent
+
+- name: Fetch the k3s installer
+  ansible.builtin.get_url:
+    url: https://get.k3s.io
+    dest: "{{ k3s_installer }}"
+    mode: "0755"
+
+- name: Read the installed k3s version
+  ansible.builtin.command: k3s --version
+  register: k3s_installed
+  changed_when: false
+  failed_when: false
+
+- name: Install or upgrade the k3s agent
+  ansible.builtin.command: "{{ k3s_installer }}"
+  environment:
+    INSTALL_K3S_VERSION: "{{ k3s_version }}"
+    INSTALL_K3S_EXEC: agent
+  when: k3s_version not in k3s_installed.stdout
+
+- name: Wait for the node to register
+  ansible.builtin.command: >
+    kubectl wait --for=condition=Ready node/{{ inventory_hostname }} --timeout=120s
+  delegate_to: mgmt
+  become: false
+  changed_when: false
+
+- name: Read the node's labels and taints
+  ansible.builtin.command: >
+    kubectl get node {{ inventory_hostname }}
+    -o jsonpath={.metadata.labels}{.spec.taints}
+  delegate_to: mgmt
+  become: false
+  register: node_meta
+  changed_when: false
+
+- name: Label the node if registration did not
+  ansible.builtin.command: kubectl label node {{ inventory_hostname }} {{ gpu_label }}
+  delegate_to: mgmt
+  become: false
+  when: gpu_label_key not in node_meta.stdout
+
+- name: Taint the node if registration did not
+  ansible.builtin.command: kubectl taint node {{ inventory_hostname }} {{ gpu_taint }}
+  delegate_to: mgmt
+  become: false
+  when: gpu_taint_key not in node_meta.stdout
