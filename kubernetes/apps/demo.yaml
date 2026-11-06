@@ -1,0 +1,25 @@
+# A smoke test for the sync path: proves the repo reaches the cluster and
+# that Traefik routes to a workload Argo created. Deleted once real
+# workloads land in Phase 5.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: demo
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/jeremyshawnjackson/homelab-iac.git
+    targetRevision: main
+    path: kubernetes/workloads/demo
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: demo
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

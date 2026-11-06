@@ -1,0 +1,18 @@
+# No DNS for the lab yet, so this is reachable with an explicit Host header.
+# Real names arrive with the DNS work in the backlog.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: demo
+spec:
+  rules:
+    - host: demo.lab.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: demo
+                port:
+                  number: 80

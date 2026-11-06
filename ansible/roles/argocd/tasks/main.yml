@@ -1,0 +1,36 @@
+---
+# Argo CD is the one thing that cannot manage itself into existence. This
+# role is the deliberate boundary between push and pull: everything after it
+# arrives through Git.
+
+- name: Create the Argo CD namespace
+  ansible.builtin.shell:
+    cmd: |
+      set -o pipefail
+      kubectl create namespace {{ argocd_namespace }} --dry-run=client -o yaml \
+        | kubectl apply -f -
+    executable: /bin/bash
+  register: argocd_ns
+  changed_when: "'created' in argocd_ns.stdout"
+
+# Pinned to a release tag: an unpinned install means a rebuild gets whatever
+# shipped since, which is the problem GitOps is supposed to solve.
+- name: Install Argo CD
+  ansible.builtin.command: >
+    kubectl apply -n {{ argocd_namespace }} -f {{ argocd_manifest_url }}
+  register: argocd_install
+  changed_when: "'created' in argocd_install.stdout or 'configured' in argocd_install.stdout"
+
+- name: Wait for the Argo CD server to be available
+  ansible.builtin.command: >
+    kubectl -n {{ argocd_namespace }} rollout status deployment/argocd-server
+    --timeout=300s
+  changed_when: false
+
+# The only imperative object in the cluster's lifetime. Everything else
+# descends from it.
+- name: Apply the root Application
+  ansible.builtin.command: >
+    kubectl apply -f {{ playbook_dir }}/../kubernetes/bootstrap/root-app.yaml
+  register: argocd_root
+  changed_when: "'created' in argocd_root.stdout or 'configured' in argocd_root.stdout"

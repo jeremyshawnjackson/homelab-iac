@@ -1,0 +1,29 @@
+# The one object applied by hand. Everything else in the cluster descends
+# from it: Argo syncs this, which creates the Applications in kubernetes/apps,
+# which create their own workloads.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: root
+  namespace: argocd
+  finalizers:
+    # Deleting this Application cascades to everything it created, rather
+    # than orphaning it.
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/jeremyshawnjackson/homelab-iac.git
+    targetRevision: main
+    path: kubernetes/apps
+    directory:
+      recurse: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      # prune removes resources deleted from Git; selfHeal reverts manual
+      # changes made with kubectl. Together they make Git authoritative.
+      prune: true
+      selfHeal: true

@@ -1,0 +1,6 @@
+---
+- name: Argo CD bootstrap
+  hosts: bastion
+  become: false
+  roles:
+    - argocd
