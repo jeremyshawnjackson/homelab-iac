@@ -15,11 +15,21 @@
 
 # Pinned to a release tag: an unpinned install means a rebuild gets whatever
 # shipped since, which is the problem GitOps is supposed to solve.
+#
+# Server-side apply is required, not preferred: client-side apply stores a
+# copy of the manifest in an annotation, and the ApplicationSet CRD is larger
+# than the 256 KiB annotation limit. --force-conflicts takes field ownership
+# from any manager that applied these objects before.
+#
+# Server-side apply reports every object as "serverside-applied" whether or
+# not anything changed, so Ansible cannot detect drift here. The apply itself
+# is idempotent; only the reporting is lost.
 - name: Install Argo CD
   ansible.builtin.command: >
-    kubectl apply -n {{ argocd_namespace }} -f {{ argocd_manifest_url }}
-  register: argocd_install
-  changed_when: "'created' in argocd_install.stdout or 'configured' in argocd_install.stdout"
+    kubectl apply -n {{ argocd_namespace }}
+    --server-side --force-conflicts
+    -f {{ argocd_manifest_url }}
+  changed_when: false
 
 - name: Wait for the Argo CD server to be available
   ansible.builtin.command: >
