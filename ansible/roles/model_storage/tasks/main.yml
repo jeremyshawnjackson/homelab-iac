@@ -1,0 +1,107 @@
+---
+# community.general.parted shells out to the parted binary, which the Debian
+# cloud image does not ship.
+- name: Install partitioning tools
+  ansible.builtin.apt:
+    name: parted
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+# The GPU node's second disk arrives from Terraform as a raw block device with
+# no partition table. A GPT partition name is what makes it identifiable
+# afterwards: /dev/disk/by-partlabel/<name> is stable across reboots, kernel
+# device reordering and a rebuilt VM, which /dev/sdb is not.
+- name: Look for an existing model library partition
+  ansible.builtin.stat:
+    path: /dev/disk/by-partlabel/{{ model_partlabel }}
+    follow: true
+  register: model_part
+
+# Everything in this block runs once, on a disk that has never been claimed.
+- name: Claim the data disk
+  when: not model_part.stat.exists
+  block:
+    # Identify the disk by what it is rather than by a name the kernel may
+    # reorder. The OS disk is excluded because it already holds partitions.
+    - name: Find block devices with no partition table
+      ansible.builtin.set_fact:
+        model_disk_candidates: >-
+          {{ ansible_devices | dict2items
+             | selectattr('key', 'match', '^sd')
+             | selectattr('value.removable', 'equalto', '0')
+             | selectattr('value.partitions', 'equalto', {})
+             | selectattr('value.holders', 'equalto', [])
+             | map(attribute='key') | list }}
+
+    - name: Require exactly one claimable disk
+      ansible.builtin.assert:
+        that: model_disk_candidates | length == 1
+        fail_msg: >-
+          Expected exactly one unpartitioned disk on {{ inventory_hostname }},
+          found {{ model_disk_candidates | join(', ') | default('none', true) }}.
+          Refusing to guess: partitioning the wrong device destroys the OS disk.
+
+    - name: Record the data disk and its size
+      ansible.builtin.set_fact:
+        model_disk: "/dev/{{ model_disk_candidates[0] }}"
+        model_disk_bytes: >-
+          {{ (ansible_devices[model_disk_candidates[0]].sectors | int)
+             * (ansible_devices[model_disk_candidates[0]].sectorsize | int) }}
+
+    # A size check as well as a count check. One unpartitioned disk of the
+    # wrong size means the VM is not the one this role thinks it is.
+    - name: Require the disk to be the expected size
+      ansible.builtin.assert:
+        that:
+          - (model_disk_bytes | int) >= ((model_disk_size_gb | int) - 1) * 1024 ** 3
+          - (model_disk_bytes | int) <= ((model_disk_size_gb | int) + 1) * 1024 ** 3
+        fail_msg: >-
+          {{ model_disk }} is {{ (model_disk_bytes | int) // 1024 ** 3 }} GB,
+          expected {{ model_disk_size_gb }} GB.
+
+    - name: Create a GPT partition spanning the data disk
+      community.general.parted:
+        device: "{{ model_disk }}"
+        label: gpt
+        number: 1
+        name: "{{ model_partlabel }}"
+        part_start: 0%
+        part_end: 100%
+        state: present
+
+    # parted returns before udev has created the by-partlabel symlink.
+    - name: Wait for the partition device node
+      ansible.builtin.wait_for:
+        path: /dev/disk/by-partlabel/{{ model_partlabel }}
+        timeout: 30
+
+# Idempotent: the module reads the superblock and only formats a bare device.
+# -m 1 drops ext4's root-reserved blocks from 5% to 1%. The reserve exists so
+# root can still write on a full root filesystem; on a data-only volume it
+# would cost ~8 GB of the 200 for nothing.
+- name: Create the filesystem
+  community.general.filesystem:
+    fstype: ext4
+    dev: /dev/disk/by-partlabel/{{ model_partlabel }}
+    opts: -m 1
+
+# No nofail. If this disk is absent the node must not boot into a state where
+# the local PV paths resolve to empty directories on the 32 GB OS disk and
+# Kubernetes starts filling it. A VM that stops at the console is the louder
+# and more recoverable of the two failures.
+- name: Mount the model library
+  ansible.posix.mount:
+    path: "{{ model_library_path }}"
+    src: PARTLABEL={{ model_partlabel }}
+    fstype: ext4
+    opts: defaults,noatime
+    state: mounted
+
+# One directory per consumer, each backed by its own PersistentVolume.
+- name: Create the library directories
+  ansible.builtin.file:
+    path: "{{ model_library_path }}/{{ item }}"
+    state: directory
+    mode: "0755"
+  loop: "{{ model_library_dirs }}"

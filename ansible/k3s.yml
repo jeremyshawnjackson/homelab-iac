@@ -15,4 +15,7 @@
   hosts: k3s_gpu
   become: true
   roles:
+    # The model library is mounted before the kubelet can schedule anything
+    # that expects to find it.
+    - model_storage
     - k3s_agent

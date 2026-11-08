@@ -1,0 +1,23 @@
+# The StorageClass and PersistentVolumes backing the model library. Cluster
+# scoped, so the destination namespace is only where Argo CD records the
+# Application itself.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: model-storage
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/jeremyshawnjackson/homelab-iac.git
+    targetRevision: main
+    path: kubernetes/workloads/model-storage
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: default
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

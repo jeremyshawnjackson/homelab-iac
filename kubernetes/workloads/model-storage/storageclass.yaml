@@ -1,0 +1,15 @@
+# Static local volumes: the directories already exist on the GPU node's data
+# disk, so there is nothing to provision dynamically.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: model-library
+provisioner: kubernetes.io/no-provisioner
+# The critical setting. Binding immediately would pick a PV before the
+# scheduler has chosen a node, and a local volume can only be reached from the
+# one machine holding the disk. WaitForFirstConsumer defers the bind until a
+# pod is scheduled, so the volume's node affinity constrains placement instead
+# of contradicting it.
+volumeBindingMode: WaitForFirstConsumer
+# Deleting a PVC must not take the model library with it.
+reclaimPolicy: Retain

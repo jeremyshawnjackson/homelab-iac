@@ -8,3 +8,18 @@ gpu_label: nvidia.com/gpu.present=true
 # declares a toleration, which is also how it ends up being scheduled here.
 gpu_taint_key: nvidia.com/gpu
 gpu_taint: nvidia.com/gpu=present:NoSchedule
+
+# The model library disk. Terraform attaches it as a bare 200 GB block device;
+# roles/model_storage partitions, formats and mounts it. The GPT partition name
+# is the stable handle: /dev/sdb is whatever the kernel enumerated this boot.
+model_disk_size_gb: 200
+model_partlabel: modellib
+model_library_path: /var/lib/models
+
+# One directory per consumer, each exported as its own PersistentVolume.
+# vLLM and llama.cpp share the Hugging Face cache; Ollama keeps its own blob
+# store, because it distributes models through its own registry rather than
+# from Hugging Face.
+model_library_dirs:
+  - ollama
+  - huggingface

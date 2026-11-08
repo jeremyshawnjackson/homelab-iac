@@ -48,7 +48,7 @@ flowchart TB
 | 2   | Terraform provisioning with a least-privilege API token                                     | Done    | [02-terraform.md](docs/02-terraform.md)             |
 | 3   | GPU hardware validation and passthrough (gate)                                              | Done    | [03-gpu-passthrough.md](docs/03-gpu-passthrough.md) |
 | 4   | Ansible + k3s, GitOps bootstrap, nightly VM backups to NAS                                  | Done    | [04-ansible-k3s.md](docs/04-ansible-k3s.md)         |
-| 5   | GPU workloads on k3s: NVIDIA stack, local LLM (Ollama, vLLM, llama.cpp), secrets management | Planned |                                                     |
+| 5   | GPU workloads on k3s: NVIDIA stack, local LLM (Ollama, vLLM, llama.cpp), secrets management | In progress | [05-gpu-workloads.md](docs/05-gpu-workloads.md)     |
 | 6   | Cluster DNS, observability, and the first real SLO                                          | Planned |                                                     |
 | 7   | CI with progressive delivery, automated rollback, automated dependency updates              | Planned |                                                     |
 | 8   | Backups, restore drills, failure drills, postmortems                                        | Planned |                                                     |

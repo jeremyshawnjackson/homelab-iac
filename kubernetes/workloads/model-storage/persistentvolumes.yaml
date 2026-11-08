@@ -1,0 +1,49 @@
+# Capacity on a local volume only guides scheduling and enforces nothing. Both
+# volumes are directories on one 200 GB filesystem, so either can fill the
+# disk. Real isolation would mean one logical volume per PV.
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: model-library-ollama
+spec:
+  capacity:
+    storage: 60Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: model-library
+  local:
+    path: /var/lib/models/ollama
+  # Pinned by hostname, not by the GPU label. The disk is in one machine; a
+  # second GPU node would match the label and would not have this data.
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values:
+                - gpu-node
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: model-library-huggingface
+spec:
+  capacity:
+    storage: 120Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: model-library
+  local:
+    path: /var/lib/models/huggingface
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values:
+                - gpu-node
