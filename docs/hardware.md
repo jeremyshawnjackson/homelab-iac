@@ -69,7 +69,8 @@ IOMMU group 2 holds only the RTX 3080's two functions and its CPU root port; eve
 | Host binding | `/etc/modprobe.d/vfio.conf`: `options vfio-pci ids=10de:2206,10de:1aef`, `softdep nouveau pre: vfio-pci` |
 | Host blacklist | `/etc/modprobe.d/blacklist-nvidia.conf`: `nouveau`, `nvidiafb`, `nvidia` |
 | Modules at boot | `vfio`, `vfio_iommu_type1`, `vfio_pci` in `/etc/modules` |
-| Guest VM requirements | `q35`, OVMF with Secure Boot off, `hostpci0: 0000:01:00,pcie=1`, ballooning off, cloud-init drive on SCSI |
+| Subsystem ID | `1043:87ac`. Identifies this specific board rather than the chip. Proxmox validates it against live hardware on every VM start as part of the cluster PCI mapping |
+| Guest VM requirements | `q35`, OVMF with Secure Boot off, `hostpci0` via the `gpu-3080` cluster mapping with `pcie=1`, ballooning off, cloud-init drive on SCSI |
 | Guest driver | NVIDIA repository, 615.71.10 / CUDA 13.4 (open kernel module) |
 | Power tuning | `nvidia-smi -lgc 210,1650` in the guest: ~270 W and 65 °C sustained vs ~368 W at stock, for −2.8% inference speed. Runtime setting, applied at boot from Phase 5 |
 

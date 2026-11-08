@@ -9,3 +9,6 @@ Planned work beyond the current phases.
 | DNS / ad blocking | Self-hosted resolver on the cluster |
 | Automated Proxmox install | Proxmox `answer.toml` so the bare-metal install is reproducible too |
 | Trusted TLS for the Proxmox API | Replace the provider's `insecure = true` with a trusted certificate |
+| SSH certificates | A rebuilt VM on a reused IP presents a new host key and is refused until a human prunes `known_hosts`. Host certificates signed by a lab CA make rebuilds trusted automatically |
+| Trusted TLS and DNS inside the cluster | Argo CD and other UIs are reachable only through `kubectl port-forward`. Needs a lab resolver and a certificate issuer before ingress hostnames are worth wiring up |
+| Scheduled template rebuilds | Template 9000 is frozen at the patch level it was built with, so a rebuilt node comes back on an older kernel than its longer-lived neighbours |

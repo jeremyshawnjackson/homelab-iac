@@ -46,8 +46,8 @@
 # rollout status returns when a workload reports its replicas available, which
 # is a weaker claim than "healthy": a pod whose readiness probe passes before
 # it fails later still counts as available here. This catches a component that
-# never starts, not one that starts and then dies. Detecting the latter is
-# alerting's job, not a playbook's.
+# never starts. One that starts and then dies gets past it, and detecting that
+# is alerting's job rather than a playbook's.
 - name: Wait for the Argo CD deployments to roll out
   ansible.builtin.command: >
     kubectl -n {{ argocd_namespace }} rollout status
