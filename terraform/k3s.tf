@@ -5,7 +5,7 @@ locals {
     "k3s-server" = {
       vm_id     = 201
       cores     = 2
-      memory    = 8192
+      memory    = 6144
       ip        = var.k3s_server_ip
       gpu       = null
       data_disk = 0
@@ -14,7 +14,7 @@ locals {
     "gpu-node" = {
       vm_id     = 202
       cores     = 4
-      memory    = 16384
+      memory    = 20480
       ip        = var.gpu_node_ip
       gpu       = var.gpu_mapping
       data_disk = 200
@@ -55,7 +55,8 @@ resource "proxmox_virtual_environment_vm" "k3s" {
 
   # Ballooning is incompatible with passthrough, and vfio pins the whole guest
   # address space anyway: a GPU node's memory is resident from boot rather than
-  # allocated on demand.
+  # allocated on demand. The GPU node's 20 GB is therefore a hard reservation
+  # against the host's 32 GB, which is what sizes the other two nodes.
   memory {
     dedicated = each.value.memory
     floating  = 0

@@ -20,8 +20,12 @@ resource "proxmox_virtual_environment_vm" "mgmt" {
     type  = "host"
   }
 
+  # Ansible, kubectl and a kubeconfig, and no workload, so 2 GB covers the OS
+  # with room to spare. Ballooning is off here too: floating defaults to 0,
+  # which Proxmox reads as a disabled balloon driver, so this is a fixed
+  # reservation like the cluster nodes'.
   memory {
-    dedicated = 4096
+    dedicated = 2048
   }
 
   disk {
