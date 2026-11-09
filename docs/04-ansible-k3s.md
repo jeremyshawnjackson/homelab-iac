@@ -11,7 +11,7 @@ After the one-time bootstrap, deploying a workload means committing a directory 
 | Proxmox host `192.168.1.10` | `proxmox`           | `proxmox_host`              | Repositories, UTC clock, VFIO passthrough, GPU cluster mapping, cloud-init vendor-data, nightly backup job |
 | `mgmt` 200                  | `vms`, `bastion`    | `base`, `kubectl`, `argocd` | Control node: `kubectl`, cluster kubeconfig, Argo CD bootstrap                                             |
 | `k3s-server` 201            | `vms`, `k3s_server` | `base`, `k3s_server`        | k3s control plane, API on `:6443`                                                                          |
-| `gpu-node` 202              | `vms`, `k3s_gpu`    | `base`, `k3s_agent`         | k3s agent, RTX 3080 attached, labelled and tainted                                                         |
+| `gpu-node` 202              | `vms`, `k3s_gpu`    | `base`, `k3s_agent`         | k3s agent, RTX 3080 attached and tainted                                                               |
 
 Reserved static IPs: `.2` NAS, `.10` Proxmox, `.20` mgmt, `.21` k3s server, `.22` GPU node.
 
@@ -141,14 +141,13 @@ Install is conditional on the running version, not on a file existing:
   when: k3s_version not in k3s_installed.stdout
 ```
 
-The agent role slurps the node token from the server, writes it under `no_log: true`, and joins. The label and taint are applied from the control node afterwards rather than through the installer's `node-label` and `node-taint` flags, which take effect only at first registration and are silently ignored on every later run:
+The agent role slurps the node token from the server, writes it under `no_log: true`, and joins. The taint is applied from the control node afterwards rather than through the installer's `node-taint` flag, which takes effect only at first registration and is silently ignored on every later run:
 
 ```
-nvidia.com/gpu.present=true
 nvidia.com/gpu=present:NoSchedule
 ```
 
-The label is vendor-prefixed because the NodeRestriction admission plugin forbids a kubelet from labelling itself into the `node-role.kubernetes.io/` namespace, since a compromised node could otherwise promote itself. The taint keeps general workloads off the card; anything that wants the GPU declares a toleration, which is also how it gets scheduled there.
+The taint keeps general workloads off the card; anything that wants the GPU declares a toleration, which is also how it gets scheduled there. Describing the hardware is a separate job and belongs to whatever can read it: node labels in the `nvidia.com/` namespace are written by GPU Feature Discovery in Phase 5.
 
 DaemonSets are not exempt. Their automatic tolerations cover node _condition_ taints only (not-ready, unreachable, disk/memory/PID pressure, unschedulable), so `svclb-traefik` stays on the server node like everything else.
 

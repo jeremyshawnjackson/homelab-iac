@@ -16,6 +16,8 @@ data disk is mounted and exported to the cluster as local PersistentVolumes.
 | Argo CD integration     | Config Management Plugin sidecar            | Keeps the pinned upstream manifest intact; the plugin arrives as one patch rather than a fork          |
 | Runtime namespace       | One `inference` namespace                   | A PVC is namespaced, so runtimes sharing the Hugging Face cache volume must share a namespace          |
 | Driver packages         | `nvidia-kernel-open-dkms` + `nvidia-driver-cuda` | The metapackages pull a display stack onto a headless node: 207 packages against 66               |
+| Driver and toolkit       | Ansible on the node, not the Operator       | k3s writes its own containerd configuration; two systems managing one file is the conflict to avoid    |
+| Node labels              | GPU Feature Discovery                       | `nvidia.com/` belongs to one owner, and GFD derives the labels from the hardware                       |
 
 ## 1. Node memory
 
@@ -187,7 +189,78 @@ a `Secret` the plugin reads; and the workstation's secret vault, which is the
 only copy that survives losing both. Losing all three makes every encrypted
 file in the repository's history permanently unreadable.
 
-## 4. Known gaps
+## 4. The NVIDIA stack
+
+Four layers, three of which this repository owns.
+
+| Layer | What it does | Owned by |
+| --- | --- | --- |
+| Driver | Binds the passed-through card, provides `libcuda` and `libnvidia-ml` | `roles/gpu_runtime` |
+| Container toolkit | Generates the CDI spec and OCI hook that inject device nodes and driver libraries into a container | `roles/gpu_runtime` |
+| containerd runtime handler | Lets a pod ask for the NVIDIA runtime | k3s, at startup |
+| GPU Operator | Device plugin, feature discovery, DCGM exporter, validator | Argo CD |
+
+The third layer needs no configuration and is the reason `gpu_runtime` runs
+before `k3s_agent`. k3s scans `PATH` for `nvidia-container-runtime` when it
+starts and writes a matching handler into its containerd config template. It
+does that at startup only, so a toolkit installed afterwards stays invisible
+until the agent restarts.
+
+### What the Operator is for
+
+A single node with a single card does not need an operator. The device plugin
+alone would advertise the GPU, and that is most of the value. It earns its
+place for two other reasons: it is what a production GPU fleet runs, and it
+brings DCGM exporter, GPU Feature Discovery and a validator as one versioned
+unit rather than as three things to wire up separately.
+
+It is deployed with `driver.enabled=false` and `toolkit.enabled=false`, because
+Ansible owns both and k3s owns the containerd configuration. `migManager` is
+off as well: GA102 has no MIG support, which is an A30, A100 and H100 feature,
+so leaving it enabled means running a component that can never succeed.
+
+### Tolerations, twice
+
+Every DaemonSet the Operator ships has to tolerate the GPU node's taint, or
+none of them land on the only node with a card and the Operator reports healthy
+while doing nothing. NFD arrives as a subchart with its own values tree, so the
+same toleration has to be set again under `node-feature-discovery.worker`.
+Without that one the node is never labelled and the device plugin has nothing
+to key off.
+
+These tolerations do not pin anything to the GPU node. An untainted node needs
+no toleration, so the DaemonSets still run on the server node as well.
+
+### One owner per label
+
+GPU Feature Discovery derives node labels from the hardware and writes them
+into the `nvidia.com/` namespace:
+
+```
+nvidia.com/gpu.product=NVIDIA-GeForce-RTX-3080
+nvidia.com/gpu.memory=10240
+nvidia.com/gpu.compute.major=8
+nvidia.com/gpu.family=ampere
+nvidia.com/cuda.driver-version.full=620.70.06
+nvidia.com/cuda.runtime-version.full=13.5
+```
+
+That namespace has one writer. Ansible applies the taint, which schedules, and
+publishes no labels, which describe. A node that loses its card then reports
+the truth from the only component able to see it, rather than being told
+otherwise by a playbook that cannot.
+
+The GPU reaches the scheduler as a countable resource:
+
+```
+nvidia.com/gpu: "1"
+```
+
+A workload asks for it in `resources.limits` and tolerates the taint. The
+scheduler places it where one exists, which is how the card gets used rather
+than merely attached.
+
+## 5. Known gaps
 
 | Gap | Consequence | Addressed in |
 | --- | --- | --- |

@@ -13,8 +13,8 @@
     state: directory
     mode: "0755"
 
-# node-label and node-taint here only take effect at first registration;
-# the kubectl tasks below are what keep them true afterwards.
+# node-taint here only takes effect at first registration; the kubectl tasks
+# below are what keep it true afterwards.
 - name: Write the agent configuration
   ansible.builtin.copy:
     dest: /etc/rancher/k3s/config.yaml
@@ -23,8 +23,6 @@
       server: {{ k3s_url }}
       token: {{ k3s_token.content | b64decode | trim }}
       node-ip: {{ ansible_host }}
-      node-label:
-        - {{ gpu_label }}
       node-taint:
         - {{ gpu_taint }}
   no_log: true # the file contains the join token
@@ -56,20 +54,14 @@
   become: false
   changed_when: false
 
-- name: Read the node's labels and taints
+- name: Read the node's taints
   ansible.builtin.command: >
     kubectl get node {{ inventory_hostname }}
-    -o jsonpath={.metadata.labels}{.spec.taints}
+    -o jsonpath={.spec.taints}
   delegate_to: mgmt
   become: false
   register: node_meta
   changed_when: false
-
-- name: Label the node if registration did not
-  ansible.builtin.command: kubectl label node {{ inventory_hostname }} {{ gpu_label }}
-  delegate_to: mgmt
-  become: false
-  when: gpu_label_key not in node_meta.stdout
 
 - name: Taint the node if registration did not
   ansible.builtin.command: kubectl taint node {{ inventory_hostname }} {{ gpu_taint }}

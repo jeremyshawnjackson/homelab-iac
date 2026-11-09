@@ -1,9 +1,9 @@
 ---
-# Vendor-prefixed: the NodeRestriction admission plugin forbids a kubelet from
-# labelling itself into the node-role.kubernetes.io/ namespace.
-gpu_label_key: nvidia.com/gpu.present
-gpu_label: nvidia.com/gpu.present=true
-
+# Node labels in the nvidia.com/ namespace belong to GPU Feature Discovery,
+# which derives them from the hardware: gpu.product, gpu.memory, gpu.family,
+# compute capability and the driver and runtime versions. Nothing here writes
+# that namespace, so there is one owner for those keys.
+#
 # Keeps general workloads off the GPU node. Anything that wants this hardware
 # declares a toleration, which is also how it ends up being scheduled here.
 gpu_taint_key: nvidia.com/gpu
