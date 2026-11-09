@@ -1,0 +1,19 @@
+# volumeName binds this claim to one specific PersistentVolume.
+#
+# Without it the binder chooses any Available volume in the class whose
+# capacity satisfies the request, and model-library has two. A claim for 60Gi
+# could land on the 120Gi Hugging Face volume, which would work and be wrong:
+# two runtimes would then share a directory neither expects to share.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ollama-models
+  namespace: inference
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: model-library
+  volumeName: model-library-ollama
+  resources:
+    requests:
+      storage: 60Gi

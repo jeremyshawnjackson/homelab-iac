@@ -1,0 +1,73 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ollama
+  namespace: inference
+spec:
+  replicas: 1
+  # Recreate, not RollingUpdate. There is one GPU and one ReadWriteOnce
+  # volume, so a rolling update would hold both on the old pod while the new
+  # one waits for them, and the rollout would never complete.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: ollama
+  template:
+    metadata:
+      labels:
+        app: ollama
+    spec:
+      # k3s writes a containerd handler for the NVIDIA runtime but does not
+      # make it the default, so a pod has to ask for it by name.
+      runtimeClassName: nvidia
+      # The GPU node carries a NoSchedule taint, which is how general
+      # workloads are kept off the card.
+      tolerations:
+        - key: nvidia.com/gpu
+          operator: Equal
+          value: present
+          effect: NoSchedule
+      containers:
+        - name: ollama
+          image: ollama/ollama:0.40.15
+          ports:
+            - name: http
+              containerPort: 11434
+          env:
+            # Ollama binds to loopback by default, which is unreachable from
+            # a Service.
+            - name: OLLAMA_HOST
+              value: "0.0.0.0:11434"
+          resources:
+            requests:
+              cpu: 500m
+              memory: 2Gi
+            limits:
+              memory: 12Gi
+              # Extended resources are requested through limits; the
+              # scheduler sets the matching request itself. Asking for the
+              # GPU is also what pins this pod to the node that has one, so
+              # no nodeSelector is needed.
+              nvidia.com/gpu: 1
+          volumeMounts:
+            - name: models
+              mountPath: /root/.ollama
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            # Generous: the API stops answering while a large model is
+            # loading from disk, and restarting mid-load would loop forever.
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            failureThreshold: 10
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: ollama-models
