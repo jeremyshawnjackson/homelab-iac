@@ -24,6 +24,10 @@ model_library_dirs:
   - ollama
   - huggingface
 
+# Debian's own nvidia-driver is too old for current runtimes, so the driver
+# comes from NVIDIA's repository for this distribution.
+cuda_repo_uri: 'https://developer.download.nvidia.com/compute/cuda/repos/debian12/x86_64'
+
 # Pinned because the GPU Operator runs with driver.enabled=false, so this
 # driver is what its validator checks. NVIDIA's repository ships new drivers
 # regularly and an unpinned node drifts to a version nobody chose.

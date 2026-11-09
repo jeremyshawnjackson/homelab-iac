@@ -1,40 +1,4 @@
 ---
-# Layer 1: the driver.
-#
-# The GPU Operator is deployed with driver.enabled=false, so the driver in the
-# guest is this role's responsibility and the Operator's validator checks
-# whatever it finds. NVIDIA's repository ships a new driver regularly, so an
-# unpinned node drifts to a version nobody chose, and the symptom surfaces as
-# an Operator failure rather than as an obvious apt event.
-- name: Install the pinned NVIDIA driver
-  ansible.builtin.apt:
-    name: "cuda-drivers={{ nvidia_driver_version }}"
-    state: present
-    update_cache: true
-    cache_valid_time: 3600
-
-# A version in the apt invocation pins a fresh install; a hold is what stops a
-# later `apt upgrade` moving it. unattended-upgrades is scoped to the security
-# suites and would not touch this, so the hold is protection against a human.
-- name: Read installed packages
-  ansible.builtin.package_facts:
-    manager: apt
-
-- name: Hold the driver packages at the installed version
-  ansible.builtin.dpkg_selections:
-    name: "{{ item }}"
-    selection: hold
-  loop: >-
-    {{ ansible_facts.packages.keys()
-       | select('match', '^(cuda-drivers|nvidia-(kernel|driver|compute|firmware)|libnvidia-)')
-       | list | sort }}
-
-# Layer 2: the container toolkit.
-#
-# It runs no containers. It generates the Container Device Interface spec and
-# the OCI hook that tell the container runtime which device nodes and which
-# driver libraries to inject into a container at create time. Without it a
-# container on a node with a GPU still sees no GPU.
 - name: Install the library the deb822 repository module needs
   ansible.builtin.apt:
     name: python3-debian
@@ -48,13 +12,111 @@
     state: directory
     mode: "0755"
 
+# ---------------------------------------------------------------------------
+# Layer 1: the driver.
+#
+# The GPU Operator runs with driver.enabled=false, so the driver in the guest
+# is this role's responsibility and the Operator's validator checks whatever
+# it finds. Debian's own nvidia-driver is too old for current runtimes, so the
+# driver comes from NVIDIA's CUDA repository.
+# ---------------------------------------------------------------------------
+- name: Fetch the NVIDIA CUDA archive key
+  ansible.builtin.get_url:
+    url: "{{ cuda_repo_uri }}/3bf863cc.pub"
+    dest: /etc/apt/keyrings/cuda.asc
+    mode: "0644"
+
+# Flat, like the Kubernetes and container toolkit repositories: no components
+# and a bare '/' suite.
+- name: Configure the NVIDIA CUDA repository
+  ansible.builtin.deb822_repository:
+    name: cuda
+    types: [deb]
+    uris: "{{ cuda_repo_uri }}"
+    suites: ["/"]
+    signed_by: /etc/apt/keyrings/cuda.asc
+    enabled: true
+
+# The driver is a DKMS module built in the guest, so it needs headers matching
+# the kernel it will load into. The running kernel is named explicitly because
+# a rebuilt node comes back on the template's kernel, which is older than the
+# metapackage's target; the metapackage is installed as well so the next
+# kernel upgrade can rebuild the module rather than silently losing the GPU.
+- name: Install kernel headers
+  ansible.builtin.apt:
+    name:
+      - "linux-headers-{{ ansible_kernel }}"
+      - linux-headers-cloud-amd64
+    state: present
+    update_cache: true
+
+# Pinned, for the same reason k3s and Argo CD are: a rebuild must produce the
+# node this repository describes, not whatever NVIDIA shipped since.
+- name: Install the pinned NVIDIA driver
+  ansible.builtin.apt:
+    name: "cuda-drivers={{ nvidia_driver_version }}"
+    state: present
+
+# A version in the apt invocation pins a fresh install; a hold is what stops a
+# later `apt upgrade` moving it. unattended-upgrades is scoped to the security
+# suites and would not touch these, so the hold is protection against a human.
+- name: Read installed packages
+  ansible.builtin.package_facts:
+    manager: apt
+
+- name: Hold the driver packages at the installed version
+  ansible.builtin.dpkg_selections:
+    name: "{{ item }}"
+    selection: hold
+  loop: >-
+    {{ ansible_facts.packages.keys()
+       | select('match', '^(cuda-drivers|nvidia-|libnvidia-)')
+       | list | sort }}
+
+# Installing the packages is not the same as having a usable GPU. The driver
+# ships a nouveau blacklist and rebuilds the initramfs, and nouveau has
+# already claimed the card by then, so the first boot after installation is
+# what actually hands the device to the NVIDIA module.
+- name: Check whether the driver is live
+  ansible.builtin.command: nvidia-smi -L
+  register: nvidia_smi
+  changed_when: false
+  failed_when: false
+
+- name: Reboot to load the driver
+  ansible.builtin.reboot:
+    reboot_timeout: 600
+  when: nvidia_smi.rc != 0
+
+- name: Re-check the driver after reboot
+  ansible.builtin.command: nvidia-smi -L
+  register: nvidia_smi_retry
+  changed_when: false
+  failed_when: false
+  when: nvidia_smi.rc != 0
+
+- name: Require a working driver
+  ansible.builtin.assert:
+    that: nvidia_smi.rc == 0 or nvidia_smi_retry.rc == 0
+    fail_msg: >-
+      The NVIDIA kernel module is not loaded after a reboot. Check that DKMS
+      built against {{ ansible_kernel }}: dkms status, and
+      /var/lib/dkms/nvidia/*/build/make.log for the build error.
+
+# ---------------------------------------------------------------------------
+# Layer 2: the container toolkit.
+#
+# It runs no containers. It generates the Container Device Interface spec and
+# the OCI hook that tell the container runtime which device nodes and which
+# driver libraries to inject into a container at create time. Without it a
+# container on a node with a GPU still sees no GPU.
+# ---------------------------------------------------------------------------
 - name: Fetch the NVIDIA container toolkit archive key
   ansible.builtin.get_url:
     url: https://nvidia.github.io/libnvidia-container/gpgkey
     dest: /etc/apt/keyrings/nvidia-container-toolkit.asc
     mode: "0644"
 
-# Flat, like the Kubernetes repository: no components and a bare '/' suite.
 - name: Configure the NVIDIA container toolkit repository
   ansible.builtin.deb822_repository:
     name: nvidia-container-toolkit
@@ -78,9 +140,9 @@
     update_cache: true
   notify: Restart k3s-agent
 
-# Layer 3 happens without a task. k3s scans PATH for nvidia-container-runtime
-# when it starts and writes a matching runtime handler into its containerd
-# config template. It does this at startup only, so this role runs before
-# k3s_agent: on a node being built, the toolkit is already in place the first
-# time k3s starts, and on an existing node the handler above restarts it.
-# Whether the runtime actually works is the GPU Operator validator's job.
+# Layer 3 needs no task. k3s scans PATH for nvidia-container-runtime when it
+# starts and writes a matching runtime handler into its containerd config
+# template. It does this at startup only, so this role runs before k3s_agent:
+# on a node being built the toolkit is in place the first time k3s starts, and
+# on an existing node the handler above restarts it. Whether the runtime
+# actually works is the GPU Operator validator's job.
