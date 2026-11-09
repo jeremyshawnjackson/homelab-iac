@@ -15,6 +15,7 @@ data disk is mounted and exported to the cluster as local PersistentVolumes.
 | Secrets in Git          | SOPS with age                               | Encrypts values and leaves structure readable, and works outside Kubernetes as well as inside it       |
 | Argo CD integration     | Config Management Plugin sidecar            | Keeps the pinned upstream manifest intact; the plugin arrives as one patch rather than a fork          |
 | Runtime namespace       | One `inference` namespace                   | A PVC is namespaced, so runtimes sharing the Hugging Face cache volume must share a namespace          |
+| Driver packages         | `nvidia-kernel-open-dkms` + `nvidia-driver-cuda` | The metapackages pull a display stack onto a headless node: 207 packages against 66               |
 
 ## 1. Node memory
 
@@ -192,5 +193,6 @@ file in the repository's history permanently unreadable.
 | --- | --- | --- |
 | The data disk is declared inside the VM resource | `terraform -replace` on the GPU node destroys the library. Recovery is a re-download, which is the reason the library is treated as a cache | Phase 8 |
 | Local volume capacity is not enforced | One workload can fill the disk and starve the others | Backlog |
+| The driver version cannot be pinned across time | NVIDIA keeps every `cuda-drivers` package but ships only the newest `nvidia-open`, which declares `Breaks` against earlier ones. An older driver is present in the repository and still uninstallable, so a node rebuilt later needs the pin bumped. A local package mirror is the fix | Backlog |
 | The age identity is a long-lived key in the cluster | A compromised repo server yields the key to every secret in the repository's history, rather than a scoped and revocable credential | Backlog |
 | The control node holds both the age identity and the cluster kubeconfig | One host compromise reads every secret and reaches the API server | Backlog |

@@ -50,11 +50,21 @@
     state: present
     update_cache: true
 
-# Pinned, for the same reason k3s and Argo CD are: a rebuild must produce the
-# node this repository describes, not whatever NVIDIA shipped since.
+# The two components a headless node uses, rather than the cuda-drivers or
+# nvidia-open metapackages. Both of those depend on nvidia-driver,
+# nvidia-settings and nvidia-xconfig, which drag in GTK, librsvg and X fonts
+# for a display path this node does not have: 207 packages against 66.
+#
+#   nvidia-kernel-open-dkms  the kernel module, built in the guest
+#   nvidia-driver-cuda       libcuda, libnvidia-ml, nvidia-smi, persistenced
+#
+# libnvidia-ml is what nvidia-smi reads and what DCGM will scrape, and the
+# container toolkit injects both libraries into containers.
 - name: Install the pinned NVIDIA driver
   ansible.builtin.apt:
-    name: "cuda-drivers={{ nvidia_driver_version }}"
+    name:
+      - "nvidia-kernel-open-dkms={{ nvidia_driver_version }}"
+      - "nvidia-driver-cuda={{ nvidia_driver_version }}"
     state: present
 
 # A version in the apt invocation pins a fresh install; a hold is what stops a
@@ -99,9 +109,11 @@
   ansible.builtin.assert:
     that: nvidia_smi.rc == 0 or nvidia_smi_retry.rc == 0
     fail_msg: >-
-      The NVIDIA kernel module is not loaded after a reboot. Check that DKMS
-      built against {{ ansible_kernel }}: dkms status, and
-      /var/lib/dkms/nvidia/*/build/make.log for the build error.
+      nvidia-smi did not report a GPU after a reboot. If the command itself is
+      missing, nvidia-driver-cuda no longer ships it and the package that does
+      has to be added. If the command exists and finds no device, the module
+      did not build: check dkms status against {{ ansible_kernel }} and
+      /var/lib/dkms/nvidia*/*/build/make.log.
 
 # ---------------------------------------------------------------------------
 # Layer 2: the container toolkit.

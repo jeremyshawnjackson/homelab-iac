@@ -29,9 +29,15 @@ model_library_dirs:
 cuda_repo_uri: 'https://developer.download.nvidia.com/compute/cuda/repos/debian12/x86_64'
 
 # Pinned because the GPU Operator runs with driver.enabled=false, so this
-# driver is what its validator checks. NVIDIA's repository ships new drivers
-# regularly and an unpinned node drifts to a version nobody chose.
-nvidia_driver_version: '615.71.10-1'
+# driver is what its validator checks.
+#
+# Applied to the headless component packages rather than a metapackage.
+# This must track the repository's current driver rather than an older one.
+# NVIDIA keeps every cuda-drivers .deb but ships only the newest nvidia-open,
+# which declares Breaks against earlier cuda-drivers, so an older version is
+# present in the repository and still uninstallable. The hold below is what
+# stops an installed node drifting; the version here only governs a rebuild.
+nvidia_driver_version: '620.70.06-1'
 
 # The container toolkit generates the CDI spec that tells containerd which
 # device nodes and driver libraries to inject into a container.
