@@ -1,4 +1,12 @@
 ---
+# Secrets tooling comes first: the Argo CD bootstrap later depends on an age
+# identity existing on this host.
+- name: Secrets tooling
+  hosts: bastion
+  become: true
+  roles:
+    - sops
+
 - name: Argo CD bootstrap
   hosts: bastion
   become: false

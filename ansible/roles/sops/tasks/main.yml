@@ -1,0 +1,36 @@
+---
+# age is the key backend: small, no key-server, no web of trust. Debian ships
+# it, so it tracks the distribution's security updates rather than a pinned
+# download.
+- name: Install age
+  ansible.builtin.apt:
+    name: age
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+# sops is not in the Debian archive. The release carries sha256 sums for the
+# raw binaries but not for its .deb packages, so the binary is what gets
+# installed: a pinned version whose integrity can actually be checked.
+# get_url verifies before writing and re-verifies an existing file, so a
+# tampered or truncated download fails the task instead of landing on PATH.
+- name: Install sops
+  ansible.builtin.get_url:
+    url: >-
+      https://github.com/getsops/sops/releases/download/{{ sops_version }}/sops-{{ sops_version }}.linux.amd64
+    dest: /usr/local/bin/sops
+    checksum: "sha256:{{ sops_sha256 }}"
+    owner: root
+    group: root
+    mode: "0755"
+
+# become: false so the directory belongs to the operator rather than root.
+# The identity is a human's key, and sops is run by a human.
+- name: Create the age key directory
+  ansible.builtin.file:
+    path: "{{ sops_age_key_dir }}"
+    state: directory
+    # 0700: no other account on the control node can read the key that
+    # decrypts every secret in the repository.
+    mode: "0700"
+  become: false

@@ -11,3 +11,15 @@ argocd_version: 'v3.6.1'
 argocd_namespace: argocd
 argocd_manifest_url: 'https://raw.githubusercontent.com/argoproj/argo-cd/{{ argocd_version }}/manifests/install.yaml'
 
+
+# Pinned and checksummed. The release publishes sha256 sums for the raw
+# binaries but not for its .deb packages, which is why the binary is what gets
+# installed.
+sops_version: 'v3.13.3'
+sops_sha256: 'e5bec3346a873ae91d871550f3e698c1aad962aff462a080e40f25fde17fef6b'
+
+# sops reads the age identity from here by default, so nothing has to set
+# SOPS_AGE_KEY_FILE in the environment. Left as ~ rather than an absolute
+# path: facts gathered under become would resolve $HOME to root's.
+sops_age_key_dir: '~/.config/sops/age'
+sops_age_key_file: '{{ sops_age_key_dir }}/keys.txt'
