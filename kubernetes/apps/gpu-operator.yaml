@@ -1,0 +1,77 @@
+# The NVIDIA GPU Operator, deployed as a Helm chart from NVIDIA's registry.
+#
+# Two components are disabled because this repository already owns them:
+# ansible/roles/gpu_runtime installs the driver and the container toolkit on
+# the node, and k3s writes its own containerd configuration. Letting the
+# Operator manage either would put two systems in charge of one file.
+#
+# What it does bring: the device plugin, which advertises nvidia.com/gpu as a
+# schedulable resource; GPU Feature Discovery and NFD, which label the node
+# with its GPU model, driver and CUDA version; DCGM exporter, which Phase 6
+# scrapes; and a validator DaemonSet that proves the stack end to end.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: gpu-operator
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://helm.ngc.nvidia.com/nvidia
+    chart: gpu-operator
+    targetRevision: v26.7.2
+    helm:
+      values: |
+        driver:
+          # The driver is installed and version-held by Ansible on the node.
+          # The Operator's validator checks what it finds rather than
+          # managing it.
+          enabled: false
+
+        toolkit:
+          # Installed by Ansible as well. k3s detects nvidia-container-runtime
+          # on PATH at startup and writes its own containerd runtime handler,
+          # so the Operator configuring containerd would fight with it.
+          enabled: false
+
+        migManager:
+          # GA102 does not support MIG. That is an A30, A100 and H100 feature.
+          enabled: false
+
+        # Every DaemonSet here has to tolerate the GPU node's taint or none of
+        # them land on the only node with a card, and the Operator reports
+        # healthy while doing nothing. An untainted node needs no toleration,
+        # so this does not restrict them to the GPU node.
+        daemonsets:
+          tolerations:
+            - key: nvidia.com/gpu
+              operator: Equal
+              value: present
+              effect: NoSchedule
+
+        # NFD ships as a subchart with its own values, so the same toleration
+        # has to be set again. Without it the worker never runs on the GPU
+        # node, the node is never labelled, and the device plugin has nothing
+        # to key off.
+        node-feature-discovery:
+          worker:
+            tolerations:
+              - key: nvidia.com/gpu
+                operator: Equal
+                value: present
+                effect: NoSchedule
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: gpu-operator
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      # The ClusterPolicy CRD embeds a full OpenAPI schema and exceeds the
+      # annotation limit client-side apply relies on, the same failure the
+      # Argo CD install hit in Phase 4.
+      - ServerSideApply=true
