@@ -1,0 +1,10 @@
+# Which key encrypts what. sops reads this on `sops edit`, so a recipient is
+# never typed on the command line and a new secret cannot be encrypted to the
+# wrong key by accident.
+creation_rules:
+  # Only the values are encrypted. apiVersion, kind, metadata.name and the
+  # namespace stay readable, so a diff shows which secret changed without
+  # showing what it changed to.
+  - path_regex: kubernetes/secrets/.*\.sops\.yaml$
+    encrypted_regex: ^(data|stringData)$
+    age: age13g49esx6mj2mqphxvw7d9xlty82n0lzzswwumrp77al6d7ljx3qq4ljg6f

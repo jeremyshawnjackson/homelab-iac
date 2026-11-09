@@ -23,3 +23,7 @@ sops_sha256: 'e5bec3346a873ae91d871550f3e698c1aad962aff462a080e40f25fde17fef6b'
 # path: facts gathered under become would resolve $HOME to root's.
 sops_age_key_dir: '~/.config/sops/age'
 sops_age_key_file: '{{ sops_age_key_dir }}/keys.txt'
+
+# Holds the age identity for the Argo CD sops plugin. Created out of band,
+# because a key that decrypts the repository cannot live in the repository.
+sops_age_secret: sops-age

@@ -1,0 +1,64 @@
+# Strategic merge patch against the upstream Argo CD repo server.
+#
+# Applied separately from the pinned upstream manifest rather than forked into
+# it, so bumping argocd_version cannot silently drop the plugin and the diff
+# against upstream stays one file long.
+#
+# The upstream Deployment already carries the scaffolding this needs: a
+# copyutil initContainer that puts argocd-cmp-server in /var/run/argocd, and
+# the var-files and plugins emptyDir volumes. Only the sidecar and its own
+# three volumes are added here.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: argocd-repo-server
+  namespace: argocd
+spec:
+  template:
+    spec:
+      containers:
+        # Merged by name: this appends a container rather than replacing the
+        # repo server's own.
+        - name: sops
+          # The Debian variant. The entrypoint below is a glibc binary from
+          # Argo CD's image executed inside this container, so the -alpine
+          # tag would fail to start it against musl.
+          image: ghcr.io/getsops/sops:v3.13.3
+          # Required entrypoint: the plugin speaks to the repo server over a
+          # socket in the shared plugins volume, not over the network.
+          command:
+            - /var/run/argocd/argocd-cmp-server
+          env:
+            - name: SOPS_AGE_KEY_FILE
+              value: /home/argocd/.config/sops/age/keys.txt
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 999
+          volumeMounts:
+            - name: var-files
+              mountPath: /var/run/argocd
+            - name: plugins
+              mountPath: /home/argocd/cmp-server/plugins
+            - name: sops-plugin
+              mountPath: /home/argocd/cmp-server/config/plugin.yaml
+              subPath: plugin.yaml
+            # Its own tmp rather than the repo server's, which is upstream's
+            # guidance: a shared tmp lets a plugin reach another application's
+            # checked-out source.
+            - name: cmp-tmp
+              mountPath: /tmp
+            - name: sops-age
+              mountPath: /home/argocd/.config/sops/age
+              readOnly: true
+      volumes:
+        - name: sops-plugin
+          configMap:
+            name: argocd-sops-plugin
+        - name: cmp-tmp
+          emptyDir: {}
+        - name: sops-age
+          secret:
+            secretName: sops-age
+            # Readable by the sidecar's uid. The pod already holds the key;
+            # the mode only governs access within it.
+            defaultMode: 0444

@@ -1,0 +1,28 @@
+# The Config Management Plugin Argo CD's repo server calls to turn encrypted
+# manifests into plain ones.
+#
+# No `discover` block, deliberately. Discovery makes a plugin claim any
+# directory matching a glob, and a plugin that claims a directory becomes
+# responsible for generating all of its manifests rather than only the
+# secrets. Without it, the plugin runs only where an Application names it.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-sops-plugin
+  namespace: argocd
+data:
+  plugin.yaml: |
+    apiVersion: argoproj.io/v1alpha1
+    kind: ConfigManagementPlugin
+    metadata:
+      name: sops
+    spec:
+      generate:
+        # Runs in the Application's source directory. The -e guard matters:
+        # an unmatched glob expands to the literal pattern, which would be
+        # passed to sops as a filename and fail the whole generation.
+        # stdout must be valid Kubernetes YAML; logs belong on stderr.
+        command:
+          - sh
+          - -c
+          - 'for f in *.sops.yaml; do [ -e "$f" ] || continue; echo "---"; sops -d "$f"; done'

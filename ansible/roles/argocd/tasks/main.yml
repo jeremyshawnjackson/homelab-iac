@@ -43,6 +43,44 @@
   loop: "{{ argocd_crds }}"
   changed_when: false
 
+# The age identity cannot be committed to this repository, because
+# decrypting it would require itself. It is the second and last imperative
+# object in the cluster's lifetime, alongside the root Application below.
+# The role asserts rather than creates: the alternative is a private key in
+# a playbook.
+- name: Check for the age identity in the cluster
+  ansible.builtin.command: >
+    kubectl -n {{ argocd_namespace }} get secret {{ sops_age_secret }}
+  register: sops_secret
+  changed_when: false
+  failed_when: false
+
+- name: Require the age identity to exist
+  ansible.builtin.assert:
+    that: sops_secret.rc == 0
+    fail_msg: |
+      The Argo CD sops plugin cannot decrypt without the age identity.
+      Create it once, from the key already on this host:
+
+        kubectl -n {{ argocd_namespace }} create secret generic {{ sops_age_secret }}           --from-file=keys.txt={{ sops_age_key_file }}
+
+- name: Install the sops plugin configuration
+  ansible.builtin.command: >
+    kubectl apply -f {{ playbook_dir }}/../kubernetes/bootstrap/argocd-sops-plugin.yaml
+  register: argocd_sops_cm
+  changed_when: "'created' in argocd_sops_cm.stdout or 'configured' in argocd_sops_cm.stdout"
+
+# Patched rather than forked into the upstream manifest, so a version bump
+# cannot silently drop the sidecar. This restarts the repo server, which the
+# rollout wait below covers.
+- name: Add the sops plugin sidecar to the repo server
+  ansible.builtin.command: >
+    kubectl -n {{ argocd_namespace }} patch deployment argocd-repo-server
+    --type strategic
+    --patch-file {{ playbook_dir }}/../kubernetes/bootstrap/argocd-repo-server-sops.yaml
+  register: argocd_sops_patch
+  changed_when: "'no change' not in argocd_sops_patch.stdout"
+
 # rollout status returns when a workload reports its replicas available, which
 # is a weaker claim than "healthy": a pod whose readiness probe passes before
 # it fails later still counts as available here. This catches a component that
