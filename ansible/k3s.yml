@@ -16,6 +16,8 @@
   become: true
   roles:
     # The model library is mounted before the kubelet can schedule anything
-    # that expects to find it.
+    # that expects to find it, and the container runtime is in place before
+    # k3s starts and scans for it.
     - model_storage
+    - gpu_runtime
     - k3s_agent

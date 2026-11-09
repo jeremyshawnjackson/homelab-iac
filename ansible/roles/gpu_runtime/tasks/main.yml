@@ -1,0 +1,86 @@
+---
+# Layer 1: the driver.
+#
+# The GPU Operator is deployed with driver.enabled=false, so the driver in the
+# guest is this role's responsibility and the Operator's validator checks
+# whatever it finds. NVIDIA's repository ships a new driver regularly, so an
+# unpinned node drifts to a version nobody chose, and the symptom surfaces as
+# an Operator failure rather than as an obvious apt event.
+- name: Install the pinned NVIDIA driver
+  ansible.builtin.apt:
+    name: "cuda-drivers={{ nvidia_driver_version }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+# A version in the apt invocation pins a fresh install; a hold is what stops a
+# later `apt upgrade` moving it. unattended-upgrades is scoped to the security
+# suites and would not touch this, so the hold is protection against a human.
+- name: Read installed packages
+  ansible.builtin.package_facts:
+    manager: apt
+
+- name: Hold the driver packages at the installed version
+  ansible.builtin.dpkg_selections:
+    name: "{{ item }}"
+    selection: hold
+  loop: >-
+    {{ ansible_facts.packages.keys()
+       | select('match', '^(cuda-drivers|nvidia-(kernel|driver|compute|firmware)|libnvidia-)')
+       | list | sort }}
+
+# Layer 2: the container toolkit.
+#
+# It runs no containers. It generates the Container Device Interface spec and
+# the OCI hook that tell the container runtime which device nodes and which
+# driver libraries to inject into a container at create time. Without it a
+# container on a node with a GPU still sees no GPU.
+- name: Install the library the deb822 repository module needs
+  ansible.builtin.apt:
+    name: python3-debian
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Create the apt keyring directory
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: "0755"
+
+- name: Fetch the NVIDIA container toolkit archive key
+  ansible.builtin.get_url:
+    url: https://nvidia.github.io/libnvidia-container/gpgkey
+    dest: /etc/apt/keyrings/nvidia-container-toolkit.asc
+    mode: "0644"
+
+# Flat, like the Kubernetes repository: no components and a bare '/' suite.
+- name: Configure the NVIDIA container toolkit repository
+  ansible.builtin.deb822_repository:
+    name: nvidia-container-toolkit
+    types: [deb]
+    uris: https://nvidia.github.io/libnvidia-container/stable/deb/amd64
+    suites: ["/"]
+    signed_by: /etc/apt/keyrings/nvidia-container-toolkit.asc
+    enabled: true
+
+# All four at the same version. Pinning only the top package would let the
+# libraries underneath float, which is the half-upgrade that produces a
+# version mismatch between the CLI and the library it calls.
+- name: Install the NVIDIA container toolkit
+  ansible.builtin.apt:
+    name:
+      - "nvidia-container-toolkit={{ nvidia_toolkit_version }}"
+      - "nvidia-container-toolkit-base={{ nvidia_toolkit_version }}"
+      - "libnvidia-container-tools={{ nvidia_toolkit_version }}"
+      - "libnvidia-container1={{ nvidia_toolkit_version }}"
+    state: present
+    update_cache: true
+  notify: Restart k3s-agent
+
+# Layer 3 happens without a task. k3s scans PATH for nvidia-container-runtime
+# when it starts and writes a matching runtime handler into its containerd
+# config template. It does this at startup only, so this role runs before
+# k3s_agent: on a node being built, the toolkit is already in place the first
+# time k3s starts, and on an existing node the handler above restarts it.
+# Whether the runtime actually works is the GPU Operator validator's job.

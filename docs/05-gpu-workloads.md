@@ -12,6 +12,9 @@ data disk is mounted and exported to the cluster as local PersistentVolumes.
 | Disk identity           | GPT partition name                          | `/dev/sdb` is whatever the kernel enumerated this boot; `by-partlabel` survives reordering and rebuilds |
 | Volume binding          | `WaitForFirstConsumer`                      | A local volume is reachable from one machine, so the bind must follow the scheduler rather than lead it |
 | Reclaim policy          | `Retain`                                    | Deleting a PVC must not delete the library                                                              |
+| Secrets in Git          | SOPS with age                               | Encrypts values and leaves structure readable, and works outside Kubernetes as well as inside it       |
+| Argo CD integration     | Config Management Plugin sidecar            | Keeps the pinned upstream manifest intact; the plugin arrives as one patch rather than a fork          |
+| Runtime namespace       | One `inference` namespace                   | A PVC is namespaced, so runtimes sharing the Hugging Face cache volume must share a namespace          |
 
 ## 1. Node memory
 
@@ -115,9 +118,79 @@ filesystem, so neither figure is enforced and either can fill the disk. Real
 isolation would mean a logical volume per PV, which buys enforcement at the
 cost of fixing the split at format time.
 
-## 3. Known gaps
+## 3. Secrets
+
+Llama 3.1 is gated, so pulling its weights needs a Hugging Face token inside
+the cluster. Downloading by hand would avoid the problem at the cost of making
+a rebuild unreproducible, which is the property this repository exists to have.
+
+A Kubernetes `Secret` is base64, not encryption, so committing one publishes
+it. The two candidates for fixing that are Sealed Secrets and SOPS.
+
+| | SOPS with age | Sealed Secrets |
+| --- | --- | --- |
+| Reach | Kubernetes, Docker, Ansible, Terraform, a shell | Kubernetes only |
+| Running services | none, a CLI | one controller |
+| Argo CD integration | a plugin sidecar | none, a `SealedSecret` is a custom resource |
+| Key backends | age, and any of AWS KMS, Azure Key Vault, GCP KMS or Vault | its own generated keypair |
+
+SOPS wins on the first and last rows. The same encrypted files and the same
+workflow survive a move to a cloud key manager, where `.sops.yaml` names a KMS
+key instead of an age recipient and the trust anchor becomes a managed identity
+rather than a file. Sealed Secrets is simpler to wire into Argo CD and has
+nothing to offer outside a cluster.
+
+SOPS encrypts values and leaves keys readable, so a diff shows which secret
+changed without showing what it changed to:
+
+```yaml
+stringData:
+  token: ENC[AES256_GCM,data:KKz+...,iv:...,tag:...,type:str]
+```
+
+`.sops.yaml` binds a path to a recipient, so a recipient is never typed on the
+command line and a new secret cannot be encrypted to the wrong key by accident.
+Encryption needs only the public half, so adding a secret requires no access to
+the key that reads them.
+
+### The plugin
+
+Argo CD's repo server picks a tool to turn a directory into manifests:
+Kustomize for a `kustomization.yaml`, Helm for a `Chart.yaml`, otherwise it
+reads the files. A Config Management Plugin replaces that step, and the
+upstream repo server already ships the scaffolding for one: a `copyutil`
+initContainer that places `argocd-cmp-server` in `/var/run/argocd`, and the
+`var-files` and `plugins` volumes. The patch adds a sidecar and three volumes.
+
+Three details in it carry reasoning:
+
+- The sidecar uses the Debian variant of the sops image. Its entrypoint is a
+  glibc binary from Argo CD's image executed inside the sops container, so an
+  Alpine base would fail to start it against musl.
+- The plugin declares no `discover` block, so it runs only where an Application
+  names it. Discovery would let the plugin claim a directory of ordinary
+  manifests and make it responsible for generating all of them.
+- The patch is applied separately from the pinned upstream manifest rather than
+  forked into it, so bumping `argocd_version` cannot silently drop the sidecar.
+
+### The bootstrap exception
+
+The age identity cannot be committed, because decrypting it would require
+itself. It is created once with `kubectl` and the role asserts it exists,
+failing with the command to run, because the alternative is a private key in a
+playbook. That makes two imperative objects in the cluster's lifetime: the root
+Application and this key. Both are roots of trust, and nothing else is exempt.
+
+The identity lives in three places: the control node, where a human runs sops;
+a `Secret` the plugin reads; and the workstation's secret vault, which is the
+only copy that survives losing both. Losing all three makes every encrypted
+file in the repository's history permanently unreadable.
+
+## 4. Known gaps
 
 | Gap | Consequence | Addressed in |
 | --- | --- | --- |
 | The data disk is declared inside the VM resource | `terraform -replace` on the GPU node destroys the library. Recovery is a re-download, which is the reason the library is treated as a cache | Phase 8 |
 | Local volume capacity is not enforced | One workload can fill the disk and starve the others | Backlog |
+| The age identity is a long-lived key in the cluster | A compromised repo server yields the key to every secret in the repository's history, rather than a scoped and revocable credential | Backlog |
+| The control node holds both the age identity and the cluster kubeconfig | One host compromise reads every secret and reaches the API server | Backlog |

@@ -1,0 +1,8 @@
+---
+# Restarting re-runs k3s's runtime detection, which only happens at startup.
+# Handlers flush at the end of the play, by which point the k3s_agent role has
+# run and the unit exists even on a node being built for the first time.
+- name: Restart k3s-agent
+  ansible.builtin.systemd_service:
+    name: k3s-agent
+    state: restarted

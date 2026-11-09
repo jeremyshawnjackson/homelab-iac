@@ -23,3 +23,12 @@ model_library_path: /var/lib/models
 model_library_dirs:
   - ollama
   - huggingface
+
+# Pinned because the GPU Operator runs with driver.enabled=false, so this
+# driver is what its validator checks. NVIDIA's repository ships new drivers
+# regularly and an unpinned node drifts to a version nobody chose.
+nvidia_driver_version: '615.71.10-1'
+
+# The container toolkit generates the CDI spec that tells containerd which
+# device nodes and driver libraries to inject into a container.
+nvidia_toolkit_version: '1.20.1-1'
