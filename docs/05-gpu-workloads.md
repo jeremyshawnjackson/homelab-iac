@@ -269,3 +269,43 @@ than merely attached.
 | The driver version cannot be pinned across time | NVIDIA keeps every `cuda-drivers` package but ships only the newest `nvidia-open`, which declares `Breaks` against earlier ones. An older driver is present in the repository and still uninstallable, so a node rebuilt later needs the pin bumped. A local package mirror is the fix | Backlog |
 | The age identity is a long-lived key in the cluster | A compromised repo server yields the key to every secret in the repository's history, rather than a scoped and revocable credential | Backlog |
 | The control node holds both the age identity and the cluster kubeconfig | One host compromise reads every secret and reaches the API server | Backlog |
+
+## 6. Status
+
+Deploying Ollama failed at the image pull, on the GPU node and then on the
+server node, at a different layer each time:
+
+```bash
+crictl pull ollama/ollama:0.40.15
+# unpigz: crc32 mismatch
+# archive/tar: invalid tar header
+```
+
+containerd verifies every layer against its digest, which is what turned a
+silent fault into a visible one.
+
+A write-verify loop on the Proxmox host reproduced the corruption away from
+Kubernetes, and the same loop against tmpfs reproduced it with no block device
+involved, which placed the fault in memory rather than storage:
+
+```bash
+dd if=/dev/urandom bs=1M count=3000 | tee /mnt/pve/bulk/t.bin | sha256sum
+sync /mnt/pve/bulk/t.bin; echo 3 > /proc/sys/vm/drop_caches
+sha256sum /mnt/pve/bulk/t.bin
+```
+
+Direct verification named the cause. Both DIMMs fail in either slot at stock
+DDR4-2133, while a third-party module passes the same test in the same slot:
+
+```bash
+stress-ng --vm 4 --vm-bytes 11G --vm-method all --verify --timeout 420s
+# 2.75G per worker, 11G total, sized to leave the host headroom
+```
+
+Nothing appeared in SMART, EDAC or the kernel log, since this platform has no
+ECC. Errors surfaced only once the host was close to fully committed, so a 3 GB
+image pull reached them while the smaller writes around it did not.
+
+The host runs on a single 16 GB stick until the pair is replaced, which is not
+enough to start the GPU node. This phase resumes at the Ollama deployment once
+the replacement is in.

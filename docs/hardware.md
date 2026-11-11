@@ -2,7 +2,7 @@
 
 Current state of the lab hardware. Phase docs record when and why things changed; this page always describes what is installed now.
 
-Last updated: 2026-11-01 (end of Phase 3).
+Last updated: 2026-11-11 (during Phase 5).
 
 ## Proxmox host (`pve`, 192.168.1.10)
 
@@ -10,9 +10,10 @@ Last updated: 2026-11-01 (end of Phase 3).
 | --- | --- | --- |
 | Motherboard | ASUS Z170M-PLUS, BIOS 3805 (2018-05-16) | Micro-ATX, Z170 chipset |
 | CPU | Intel Core i5-6600, 4 cores / 4 threads | VT-x and VT-d |
-| RAM | 32 GB: G.Skill Trident Z Neo 2×16 GB DDR4 in DIMM_A2 + DIMM_B2 | Dual channel. Rated DDR4-3600; runs at DDR4-2944, CL16-19-19-39. Memtest86+ 7.20: 19 passes, 0 errors |
+| RAM | 16 GB: Corsair Vengeance LPX 1×16 GB DDR4 in DIMM_A2 | Single channel at DDR4-2133. Verified under concurrent load with `stress-ng --vm 4 --vm-method all --verify` |
 | Disk 1 | Samsung 850 EVO 250 GB SSD | Proxmox OS, `local`, `local-lvm` (VM disks) |
 | Disk 2 | Seagate FireCuda 2 TB SSHD | `bulk`: ISOs, backups, snippets |
+| Disk 3 | Seagate FireCuda 2 TB SSHD, NTFS | Not mounted and unused by Proxmox. 40 uncorrectable sectors |
 | NIC | Intel X550 dual-port 10GBASE-T (third-party board), `ixgbe` | Ports pinned by MAC as `nic0` (uplink, `vmbr0`) and `nic1` (reserved). Links at 1 Gb/s to the router |
 | Onboard NIC | Intel I219-V | Dead: `e1000e` fails to initialize it. Unused |
 | iGPU | Intel HD Graphics 530 | Host console; primary display |
@@ -32,7 +33,7 @@ Location: network closet next to the router. In-wall cabling elsewhere in the ho
 | iGPU Multi-Monitor | Advanced → System Agent → Graphics Configuration | Enabled | Keeps the iGPU active with a discrete GPU installed |
 | Wait for F1 if error | — | Disabled | Boots without a keyboard |
 | Restore on AC power loss | — | Power On | Recovers from outages unattended |
-| Memory frequency | Ai Tweaker | ~DDR4-3000 | Stable on this CPU's memory controller; DDR4-3600 not attempted |
+| Memory frequency | Ai Tweaker | Auto (DDR4-2133) | The rated speed for this memory controller. XMP off |
 
 ## IOMMU
 
@@ -80,6 +81,7 @@ IOMMU group 2 holds only the RTX 3080's two functions and its CPU root port; eve
 | --- | --- |
 | GPU PCIe link at x8 | `LnkCap` x16, but the link runs at x8 even under load, after one reseat. Suspect slot, board or card contacts. Low impact on inference |
 | Onboard I219-V NIC | Dead; unused |
+| G.Skill DIMM pair faulty | Both 16 GB Trident Z Neo sticks fail memory verification in either slot at stock DDR4-2133. Returned under warranty. The host runs on a single 16 GB Corsair stick until they are replaced, which is not enough to start the GPU node |
 
 ## Spare hardware
 
@@ -90,7 +92,6 @@ Candidates for a second GPU. Not decided: a second node, a second GPU on this ho
 | Motherboard | ASUS ROG Strix X570-I (mini-ITX, one x16 slot) |
 | CPU | None yet (AM4) |
 | GPU | EVGA RTX 3070 FTW3 (8 GB) |
-| RAM | Spare Corsair Vengeance LPX 16 GB DDR4-3000 CL15 (CMK16GX4M1B3000C15) |
 | Case | FormD T1 (Mini-ITX, SFX/SFX-L PSU only, GPU up to 325 mm and 3.25 slots, riser-mounted) |
 | PSU | Corsair CX750M (750 W, Bronze, semi-modular, ATX), removed from this host. Doesn't fit the T1 |
 
