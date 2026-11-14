@@ -27,3 +27,17 @@ sops_age_key_file: '{{ sops_age_key_dir }}/keys.txt'
 # Holds the age identity for the Argo CD sops plugin. Created out of band,
 # because a key that decrypts the repository cannot live in the repository.
 sops_age_secret: sops-age
+
+# The Shelly plug the Proxmox host draws mains from. This platform has no
+# IPMI, so the relay is the only way to power the host on without standing in
+# front of it. Addressed by IP rather than by its mDNS name
+# (ShellyPlugUSG4-98C377023394.local): that name resolves from a desktop, but
+# the Debian cloud image has no mDNS resolver, and adding avahi to this VM for
+# one hostname is a worse trade than a reserved lease on the router.
+shelly_host: '192.168.1.111'
+
+# Gen4 firmware exposes a single switch component, and its digest auth user is
+# always 'admin'. Only the password is a secret, and it lives in
+# group_vars/bastion.sops.yml rather than here.
+shelly_user: admin
+shelly_switch_id: 0

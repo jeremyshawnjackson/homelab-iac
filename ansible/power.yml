@@ -1,0 +1,15 @@
+---
+# Runs on the bastion, with no facts gathered and nothing reached over SSH, so
+# it still works when the Proxmox host is exactly what is unreachable. That is
+# the whole point of the plug: the one playbook that must not depend on the
+# host it manages.
+#
+# Report the current state:          ansible-playbook power.yml
+# Power the host on and wait for it: ansible-playbook power.yml -e shelly_relay_state=on
+# Cut mains once the host is down:   ansible-playbook power.yml -e shelly_relay_state=off
+- name: Lab host power
+  hosts: bastion
+  become: false
+  gather_facts: false
+  roles:
+    - lab_power
