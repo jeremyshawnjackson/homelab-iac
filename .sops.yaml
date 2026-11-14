@@ -8,3 +8,14 @@ creation_rules:
   - path_regex: kubernetes/secrets/.*\.sops\.yaml$
     encrypted_regex: ^(data|stringData)$
     age: age13g49esx6mj2mqphxvw7d9xlty82n0lzzswwumrp77al6d7ljx3qq4ljg6f
+
+  # Ansible vars. No encrypted_regex: every value in these files is a secret,
+  # and the keys stay readable, so a diff still shows which credential changed
+  # without showing what it changed to.
+  #
+  # Not anchored on `ansible/`: sops matches this against the path as typed, so
+  # a rule needing that prefix fails when sops is run from inside ansible/,
+  # which is where the playbooks are run from. There is only one group_vars
+  # tree in this repository, so the shorter match is no less precise.
+  - path_regex: group_vars/.*\.sops\.yml$
+    age: age13g49esx6mj2mqphxvw7d9xlty82n0lzzswwumrp77al6d7ljx3qq4ljg6f

@@ -1,0 +1,40 @@
+---
+# Declared here rather than in group_vars because these are properties of the
+# device and of the safety argument, not of this site.
+
+# What the plug's switch must always be set to. The role converges these on
+# every run, so a setting changed by hand in the app does not stay changed.
+#   initial_state: restore_last  a plug that reboots for its own reasons
+#     (firmware update, wifi drop) must not leave the host unpowered. 'on'
+#     would also guarantee that, but it would override a deliberate lab-down.
+#   autorecover_voltage_errors   otherwise a tripped voltage protection
+#     latches the relay open and the host stays dead until a human notices.
+#   auto_on / auto_off           a timer on a server is an unannounced hard
+#     power cut. Both stay off.
+shelly_switch_config:
+  initial_state: restore_last
+  autorecover_voltage_errors: true
+  auto_on: false
+  auto_off: false
+
+# Draw at or below this means the host has finished shutting down and only the
+# PSU's standby rail is left. The interlock below refuses to open the relay
+# above it, so a running host with mounted filesystems is never cut. Calibrate
+# from the host's real measured idle once it is on the plug: the default is
+# deliberately low, so an uncalibrated run fails closed.
+shelly_standby_watts: 10
+
+# 'on' or 'off' moves the relay. Left undefined the role only reads and
+# reports, which is what the routine `ansible-playbook power.yml` run does.
+shelly_relay_state: ~
+
+# Opening the relay above shelly_standby_watts requires this. It is the
+# "I accept a hard power cut" switch, for a host too wedged to shut itself
+# down, and it is never set in a file: pass it with -e on the one run.
+shelly_force_cut: false
+
+# After closing the relay, wait for the host to come back. The BIOS setting
+# "Restore on AC power loss: Power On" is what turns applied mains into a
+# booted host; this is the check that it is still true.
+shelly_wait_for_host: true
+shelly_host_boot_timeout: 300

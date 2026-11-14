@@ -2,3 +2,7 @@
 collections:
   - name: community.general
   - name: ansible.posix
+  # Decrypts group_vars/*.sops.yml with the age identity already installed on
+  # this host by roles/sops, so the plug's password is held the same way the
+  # cluster's secrets are instead of introducing a second secret system.
+  - name: community.sops
