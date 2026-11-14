@@ -54,9 +54,16 @@
         rpc_nc: "00000001"
         rpc_cnonce: "{{ 99999999 | random }}"
 
-    # Gen2+ digest as the device computes it: ha2 is the hash of a fixed
-    # placeholder, because the request method and URI play no part in the
-    # device's check. That is the one place this differs from RFC 7616.
+    # Gen2+ digest, SHA-256 throughout, per Shelly's published formula:
+    #   ha1      = SHA256(user:realm:password)
+    #   ha2      = SHA256(method:uri)
+    #   response = SHA256(ha1:nonce:nc:cnonce:auth:ha2)
+    #
+    # ha2 is transport-dependent, which is the trap here. Shelly's WebSocket
+    # and other RPC transports hash the fixed placeholder
+    # "dummy_method:dummy_uri", and most example code found in the wild is for
+    # those. Over HTTP the real method and URI are hashed, so this must stay in
+    # step with the request the next task actually makes: POST to /rpc.
     - name: Compute the digest response
       ansible.builtin.set_fact:
         rpc_auth_response: >-
@@ -65,7 +72,7 @@
                ~ ':' ~ rpc_nc
                ~ ':' ~ rpc_cnonce
                ~ ':auth:'
-               ~ ('dummy_method:dummy_uri' | hash('sha256')) ) | hash('sha256') }}
+               ~ ('POST:/rpc' | hash('sha256')) ) | hash('sha256') }}
       no_log: true
 
     - name: "Repeat {{ rpc_method }} with credentials"
