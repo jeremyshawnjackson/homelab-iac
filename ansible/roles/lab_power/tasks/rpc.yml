@@ -1,0 +1,99 @@
+---
+# One RPC call to the plug, authenticating if the device asks.
+#
+# This exists because ansible.builtin.uri cannot authenticate to this device.
+# Gen2+ firmware challenges with SHA-256 digest, and uri is built on Python's
+# urllib, which implements only MD5 and SHA-1 and fails the call outright with
+# "Unsupported digest authentication algorithm 'SHA-256'". So the digest is
+# computed here and sent as an explicit Authorization header, which keeps
+# urllib's digest handling out of the path entirely.
+#
+# The call is made once unauthenticated to collect a challenge, then repeated
+# with credentials. That costs an extra request per call and is worth it: some
+# methods need no auth at all, a fresh nonce per call keeps the nonce count at
+# 1 every time, and nothing has to track nc across the run.
+#
+# Expects: rpc_method, rpc_params (optional), rpc_changed (optional).
+# Sets:    rpc_result, whose .json.result holds the device's reply.
+
+# params is omitted rather than sent empty: methods that take no parameters
+# should not be handed an empty object to interpret.
+- name: "Build the request body for {{ rpc_method }}"
+  ansible.builtin.set_fact:
+    rpc_body: >-
+      {{ {'id': 1, 'method': rpc_method}
+         | combine({'params': rpc_params} if rpc_params | default({}) else {}) }}
+
+- name: "Request {{ rpc_method }} without credentials"
+  ansible.builtin.uri:
+    url: "http://{{ shelly_host }}/rpc"
+    method: POST
+    body_format: json
+    body: "{{ rpc_body }}"
+    status_code: [200, 401]
+  register: rpc_unauth
+  # A 401 here changed nothing, so only a 200 on a mutating call counts.
+  changed_when: rpc_changed | default(false) and rpc_unauth.status == 200
+
+- name: "Authenticate and repeat {{ rpc_method }}"
+  when: rpc_unauth.status == 401
+  block:
+    # The nonce is base64, so it carries '/', '+' and '=' but never a quote:
+    # matching up to the closing quote is safe, and matching non-base64
+    # characters would not be.
+    - name: Take the realm and nonce from the challenge
+      ansible.builtin.set_fact:
+        rpc_realm: >-
+          {{ rpc_unauth.get('www_authenticate', rpc_unauth.get('www-authenticate', ''))
+             | regex_search('realm="([^"]+)"', '\1') | first }}
+        rpc_nonce: >-
+          {{ rpc_unauth.get('www_authenticate', rpc_unauth.get('www-authenticate', ''))
+             | regex_search('nonce="([^"]+)"', '\1') | first }}
+        # One challenge is used for exactly one request, so the count is always
+        # the first. The client nonce only has to differ between runs.
+        rpc_nc: "00000001"
+        rpc_cnonce: "{{ 99999999 | random }}"
+
+    # Gen2+ digest as the device computes it: ha2 is the hash of a fixed
+    # placeholder, because the request method and URI play no part in the
+    # device's check. That is the one place this differs from RFC 7616.
+    - name: Compute the digest response
+      ansible.builtin.set_fact:
+        rpc_auth_response: >-
+          {{ ( ((shelly_user ~ ':' ~ rpc_realm ~ ':' ~ shelly_password) | hash('sha256'))
+               ~ ':' ~ rpc_nonce
+               ~ ':' ~ rpc_nc
+               ~ ':' ~ rpc_cnonce
+               ~ ':auth:'
+               ~ ('dummy_method:dummy_uri' | hash('sha256')) ) | hash('sha256') }}
+      no_log: true
+
+    - name: "Repeat {{ rpc_method }} with credentials"
+      ansible.builtin.uri:
+        url: "http://{{ shelly_host }}/rpc"
+        method: POST
+        body_format: json
+        body: "{{ rpc_body }}"
+        headers:
+          Authorization: >-
+            Digest username="{{ shelly_user }}", realm="{{ rpc_realm }}",
+            nonce="{{ rpc_nonce }}", uri="/rpc", algorithm=SHA-256, qop=auth,
+            nc={{ rpc_nc }}, cnonce="{{ rpc_cnonce }}",
+            response="{{ rpc_auth_response }}"
+        status_code: [200, 401]
+      register: rpc_auth
+      changed_when: rpc_changed | default(false) and rpc_auth.status == 200
+      no_log: true
+
+    - name: "Fail clearly if {{ rpc_method }} was refused"
+      ansible.builtin.fail:
+        msg: >-
+          The plug at {{ shelly_host }} refused {{ rpc_method }} after
+          authenticating. Either shelly_password in group_vars/bastion.sops.yml
+          does not match the password set on the device, or shelly_user is not
+          the digest user the firmware expects (Gen2+ only ever uses 'admin').
+      when: rpc_auth.status == 401
+
+- name: "Keep the result of {{ rpc_method }}"
+  ansible.builtin.set_fact:
+    rpc_result: "{{ rpc_auth if rpc_unauth.status == 401 else rpc_unauth }}"

@@ -1,13 +1,13 @@
 ---
 # The Proxmox host has no IPMI, so this plug's relay is the lab's only
 # out-of-band power control: it is what makes a powered-off or wedged host
-# recoverable without walking to the machine. Every call here goes to the
-# device's own RPC API over HTTP digest auth. Shelly Cloud is disabled, so no
+# recoverable without walking to the machine. Shelly Cloud is disabled, so
+# every call here goes to the device's own RPC API on the lab network and no
 # vendor service sits between this role and the host's power.
 #
-# Tasks that carry the password set no_log. That suppresses the task's
-# displayed output, not its registered result, so the role still reads what
-# the device returned while -vvv cannot print the credential.
+# Each call goes through rpc.yml, which authenticates the way this firmware
+# requires and leaves its reply in rpc_result. That fact is overwritten by the
+# next call, so anything still needed is kept under its own name immediately.
 
 - name: Require the plug password
   ansible.builtin.assert:
@@ -17,131 +17,90 @@
     fail_msg: >-
       shelly_password is not set, which means ansible/group_vars/bastion.sops.yml
       is absent or was not decrypted. Create it once, on a host holding the age
-      identity: `sops edit ansible/group_vars/bastion.sops.yml`, containing the
-      single line `shelly_password: <the plug's admin password>`. If the file
-      exists, check that community.sops is installed and that
+      identity: `sops edit group_vars/bastion.sops.yml`, containing the single
+      line `shelly_password: <the plug's admin password>`. If the file exists,
+      check that community.sops is installed and that
       {{ sops_age_key_file | default('~/.config/sops/age/keys.txt') }} holds the
       identity named in .sops.yaml.
     quiet: true
 
-# Doubles as the authentication check: a wrong password fails here rather than
-# halfway through a power transition.
 - name: Read the plug's device information
-  ansible.builtin.uri:
-    url: "http://{{ shelly_host }}/rpc"
-    method: POST
-    body_format: json
-    body:
-      id: 1
-      method: Shelly.GetDeviceInfo
-    url_username: "{{ shelly_user }}"
-    url_password: "{{ shelly_password }}"
-    # Digest, not basic. Gen2+ firmware issues a challenge, and forcing basic
-    # would send the password to a device that never asked for it that way.
-    force_basic_auth: false
-    status_code: [200, 401]
-  register: shelly_info
-  changed_when: false
-  no_log: true
+  ansible.builtin.include_tasks: rpc.yml
+  vars:
+    rpc_method: Shelly.GetDeviceInfo
 
-- name: Fail clearly on a rejected credential
-  ansible.builtin.fail:
-    msg: >-
-      The plug at {{ shelly_host }} rejected the credential. Either the
-      password in group_vars/bastion.sops.yml is stale, or authentication was
-      disabled on the device and no longer matches what this role expects.
-  when: shelly_info.status == 401
+- name: Keep the device information
+  ansible.builtin.set_fact:
+    shelly_info: "{{ rpc_result.json.result }}"
 
 - name: Read the plug's switch configuration
-  ansible.builtin.uri:
-    url: "http://{{ shelly_host }}/rpc"
-    method: POST
-    body_format: json
-    body:
-      id: 1
-      method: Switch.GetConfig
-      params:
-        id: "{{ shelly_switch_id }}"
-    url_username: "{{ shelly_user }}"
-    url_password: "{{ shelly_password }}"
-    force_basic_auth: false
-  register: shelly_cfg
-  changed_when: false
-  no_log: true
+  ansible.builtin.include_tasks: rpc.yml
+  vars:
+    rpc_method: Switch.GetConfig
+    rpc_params:
+      id: "{{ shelly_switch_id }}"
 
-# Applying the desired keys over the live config and comparing is enough:
+# Overlaying the managed keys onto the live config and comparing is enough:
 # GetConfig returns keys this role does not manage, and overlaying only the
 # managed ones leaves the result identical when nothing has drifted.
 - name: Note whether the switch configuration has drifted
   ansible.builtin.set_fact:
-    shelly_cfg_live: "{{ shelly_cfg.json.result }}"
+    shelly_cfg_live: "{{ rpc_result.json.result }}"
     shelly_cfg_drifted: >-
-      {{ (shelly_cfg.json.result | combine(shelly_switch_config))
-         != shelly_cfg.json.result }}
+      {{ (rpc_result.json.result | combine(shelly_switch_config))
+         != rpc_result.json.result }}
 
 - name: Converge the switch configuration
-  ansible.builtin.uri:
-    url: "http://{{ shelly_host }}/rpc"
-    method: POST
-    body_format: json
-    body:
-      id: 1
-      method: Switch.SetConfig
-      params:
-        id: "{{ shelly_switch_id }}"
-        config: "{{ shelly_switch_config }}"
-    url_username: "{{ shelly_user }}"
-    url_password: "{{ shelly_password }}"
-    force_basic_auth: false
+  ansible.builtin.include_tasks: rpc.yml
+  vars:
+    rpc_method: Switch.SetConfig
+    rpc_params:
+      id: "{{ shelly_switch_id }}"
+      config: "{{ shelly_switch_config }}"
+    rpc_changed: true
   when: shelly_cfg_drifted | bool
-  changed_when: true
-  no_log: true
 
 - name: Read the switch status and metering
-  ansible.builtin.uri:
-    url: "http://{{ shelly_host }}/rpc"
-    method: POST
-    body_format: json
-    body:
-      id: 1
-      method: Switch.GetStatus
-      params:
-        id: "{{ shelly_switch_id }}"
-    url_username: "{{ shelly_user }}"
-    url_password: "{{ shelly_password }}"
-    force_basic_auth: false
-  register: shelly_status
-  changed_when: false
-  no_log: true
+  ansible.builtin.include_tasks: rpc.yml
+  vars:
+    rpc_method: Switch.GetStatus
+    rpc_params:
+      id: "{{ shelly_switch_id }}"
 
+- name: Keep the switch status
+  ansible.builtin.set_fact:
+    shelly_switch: "{{ rpc_result.json.result }}"
+
+# Defaulted throughout: an unauthenticated GetDeviceInfo returns a reduced set
+# of fields, and a report is not worth failing a power operation over.
 - name: Report the plug's state
   ansible.builtin.debug:
     msg:
-      - "device:    {{ shelly_info.json.result.id }} ({{ shelly_info.json.result.model }}) firmware {{ shelly_info.json.result.ver }}"
-      - "relay:     {{ 'closed, host has mains' if shelly_status.json.result.output else 'open, host has no mains' }}"
-      - "drawing:   {{ shelly_status.json.result.apower }} W at {{ shelly_status.json.result.voltage }} V"
-      - "metered:   {{ (shelly_status.json.result.aenergy.total / 1000) | round(3) }} kWh since the counter was last reset"
-      - "plug temp: {{ shelly_status.json.result.temperature.tC }} C"
+      - "device:    {{ shelly_info.id | default('?') }} ({{ shelly_info.model | default('?') }}) firmware {{ shelly_info.ver | default('?') }}"
+      - "relay:     {{ 'closed, host has mains' if shelly_switch.output else 'open, host has no mains' }}"
+      - "drawing:   {{ shelly_switch.apower }} W at {{ shelly_switch.voltage }} V"
+      - "metered:   {{ (shelly_switch.aenergy.total / 1000) | round(3) }} kWh since the counter was last reset"
+      - "plug temp: {{ shelly_switch.temperature.tC }} C"
 
 # --- Power transitions ------------------------------------------------------
 # Only reached when shelly_relay_state is set. A plain run reports and stops.
 
 # Opening the relay is a hard power cut, not a shutdown. The host's storage is
 # ext4 on directory storage with live VM images on it, so cutting a running
-# host risks a dirty host and corrupt guests. The plug's own power meter is
-# the evidence that the shutdown finished: below standby, nothing is running.
-# This is a better gate than a fixed sleep, which only guesses.
+# host risks a dirty host and corrupt guests. The plug's own power meter is the
+# evidence that a shutdown finished: below standby, nothing is running. That is
+# a better gate than a fixed sleep, which only guesses.
 - name: Refuse to cut mains while the host is still drawing power
   ansible.builtin.fail:
     msg: >-
-      The plug reads {{ shelly_status.json.result.apower }} W, above the
+      The plug reads {{ shelly_switch.apower }} W, above the
       {{ shelly_standby_watts }} W standby threshold, so the host has not
       finished shutting down. Shut it down first and run again. To cut mains
       anyway, for a host too wedged to shut itself down and accepting an
       unclean power loss, re-run with -e shelly_force_cut=true.
   when:
     - shelly_relay_state == 'off'
-    - shelly_status.json.result.apower | float > shelly_standby_watts | float
+    - shelly_switch.apower | float > shelly_standby_watts | float
     - not shelly_force_cut | bool
 
 # Ansible renders a value that is one whole template expression to its literal
@@ -149,24 +108,16 @@
 # rather than the strings "0" and "True". The firmware rejects the strings, so
 # this is load-bearing, not incidental.
 - name: Move the relay
-  ansible.builtin.uri:
-    url: "http://{{ shelly_host }}/rpc"
-    method: POST
-    body_format: json
-    body:
-      id: 1
-      method: Switch.Set
-      params:
-        id: "{{ shelly_switch_id }}"
-        "on": "{{ (shelly_relay_state == 'on') | bool }}"
-    url_username: "{{ shelly_user }}"
-    url_password: "{{ shelly_password }}"
-    force_basic_auth: false
+  ansible.builtin.include_tasks: rpc.yml
+  vars:
+    rpc_method: Switch.Set
+    rpc_params:
+      id: "{{ shelly_switch_id }}"
+      "on": "{{ (shelly_relay_state == 'on') | bool }}"
+    rpc_changed: true
   when:
     - shelly_relay_state is not none
-    - shelly_relay_state != (shelly_status.json.result.output | ternary('on', 'off'))
-  changed_when: true
-  no_log: true
+    - shelly_relay_state != (shelly_switch.output | ternary('on', 'off'))
 
 # Closing the relay only applies mains. The host boots because its BIOS is set
 # to "Restore on AC power loss: Power On"; if that setting is ever lost, this
