@@ -55,6 +55,8 @@ Two safety properties are worth stating, because the plug is a power cut and not
 - `initial_state: restore_last` and `autorecover_voltage_errors: true` are converged on every run. A plug that reboots for its own reasons, or trips its voltage protection, must not leave the host unpowered with nobody watching.
 - Opening the relay is refused while the plug reads more than `shelly_standby_watts`. The power meter is the evidence that a shutdown actually finished, which is a better gate than a fixed sleep. `-e shelly_force_cut=true` overrides it, for a host too wedged to shut itself down and accepting an unclean loss.
 
+The role computes the digest itself rather than letting `ansible.builtin.uri` do it. `uri` is built on Python's `urllib`, which implements only MD5 and SHA-1, while this firmware challenges with SHA-256. Two things cost a round trip each on the way to a working call: the nonce is base64, so it carries `/`, `+` and `=` and a character-class regex mangles it; and `ha2` is transport-dependent, hashing the fixed `dummy_method:dummy_uri` over WebSocket but the real `POST:/rpc` over HTTP, which is what most example code in the wild gets wrong for this transport.
+
 Only the host is on the plug. The switch, router and NAS are deliberately not: the plug is controlled over the network it would be cutting, and the NAS is the nightly `vzdump` target.
 
 ## IOMMU
