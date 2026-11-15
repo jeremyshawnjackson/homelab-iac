@@ -1,0 +1,16 @@
+shelly_password: ENC[AES256_GCM,data:RFSBmQHoYnixtykM,iv:X37Y4JN+ztcRlBAPZ7ahHD1ZWdoFT99sVs/jVam0Wls=,tag:Ja+fz3DIF1EwcutTtNfLmA==,type:str]
+sops:
+    age:
+        - enc: |
+            -----BEGIN AGE ENCRYPTED FILE-----
+            YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSAwQ04weDBGRERkbEhkRDh2
+            Wk14QnVQTlBqdlV5MmlkQ0hpblQ1SExudEFVCkJUS2I1enNFeW0rWnlFVUZSTXNu
+            d1N1Z1h2MUJ4YTRLN0NydGhQTjI3eDQKLS0tIDFuY1liUDg4VlovRlcyMzd5U0p4
+            Wm5IRzR1TzYwcm96eGVHZ25GeHVEekUKGnu26LZfDG+eDNQ7bPPC4KbC6GrQiYJ2
+            LjH04TooJ9FgRP+c31T8K35z2dKVvSzhWZhQhnX+7Aa+zFFuqy6nxw==
+            -----END AGE ENCRYPTED FILE-----
+          recipient: age13g49esx6mj2mqphxvw7d9xlty82n0lzzswwumrp77al6d7ljx3qq4ljg6f
+    lastmodified: "2026-11-14T06:34:25Z"
+    mac: ENC[AES256_GCM,data:2rhUIhx3BBtKvF5GMu195YjunPxpltv0gfyDh0M6E5PW0bSj40GelkYu4fX6rAxU/OY8g7fDWdjJztGWyEvIlolskqjTREfEWzHQf7IfCrbmGFGJ/pAS0X9sPf1z/1qBp1bYkqNFMakqxFGCBAY6FHiZGBcbt3Hrdv3hlsVlQtY=,iv:wsvEcehh1AXHqG/wYwBlu11TZY5vqC9QOQzGe0BDy/A=,tag:hYMbZ6OvbCzxnM5DWttedQ==,type:str]
+    unencrypted_suffix: _unencrypted
+    version: 3.13.3
