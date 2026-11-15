@@ -1,0 +1,20 @@
+---
+# git refuses to commit at all without an identity, and the failure surfaces
+# the first time a secret is encrypted on this host and needs committing,
+# which is the worst moment to discover it.
+#
+# become: false so the identity belongs to the operator account rather than
+# root. The repository is checked out in that account's home, and sops is run
+# by a human, so that is the account whose commits need a name on them.
+- name: Set the git identity for commits made on the control node
+  community.general.git_config:
+    name: "{{ item.name }}"
+    scope: global
+    value: "{{ item.value }}"
+  loop:
+    - name: user.name
+      value: "{{ git_user_name }}"
+    - name: user.email
+      value: "{{ git_user_email }}"
+  loop_control:
+    label: "{{ item.name }}"

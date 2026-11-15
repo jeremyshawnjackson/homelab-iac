@@ -4,25 +4,24 @@
 # Single-quoted: a double-quoted YAML scalar would try to interpret \. as an
 # escape sequence and fail to parse.
 kubectl_minor: '{{ k3s_version | regex_search("^v[0-9]+\.[0-9]+") }}'
-kubectl_repo_uri: 'https://pkgs.k8s.io/core:/stable:/{{ kubectl_minor }}/deb/'
+kubectl_repo_uri: "https://pkgs.k8s.io/core:/stable:/{{ kubectl_minor }}/deb/"
 
 # Pinned to a release tag, for the same reason k3s is.
-argocd_version: 'v3.6.1'
+argocd_version: "v3.6.1"
 argocd_namespace: argocd
-argocd_manifest_url: 'https://raw.githubusercontent.com/argoproj/argo-cd/{{ argocd_version }}/manifests/install.yaml'
-
+argocd_manifest_url: "https://raw.githubusercontent.com/argoproj/argo-cd/{{ argocd_version }}/manifests/install.yaml"
 
 # Pinned and checksummed. The release publishes sha256 sums for the raw
 # binaries but not for its .deb packages, which is why the binary is what gets
 # installed.
-sops_version: 'v3.13.3'
-sops_sha256: 'e5bec3346a873ae91d871550f3e698c1aad962aff462a080e40f25fde17fef6b'
+sops_version: "v3.13.3"
+sops_sha256: "e5bec3346a873ae91d871550f3e698c1aad962aff462a080e40f25fde17fef6b"
 
 # sops reads the age identity from here by default, so nothing has to set
 # SOPS_AGE_KEY_FILE in the environment. Left as ~ rather than an absolute
 # path: facts gathered under become would resolve $HOME to root's.
-sops_age_key_dir: '~/.config/sops/age'
-sops_age_key_file: '{{ sops_age_key_dir }}/keys.txt'
+sops_age_key_dir: "~/.config/sops/age"
+sops_age_key_file: "{{ sops_age_key_dir }}/keys.txt"
 
 # Holds the age identity for the Argo CD sops plugin. Created out of band,
 # because a key that decrypts the repository cannot live in the repository.
@@ -34,10 +33,15 @@ sops_age_secret: sops-age
 # (ShellyPlugUSG4-98C377023394.local): that name resolves from a desktop, but
 # the Debian cloud image has no mDNS resolver, and adding avahi to this VM for
 # one hostname is a worse trade than a reserved lease on the router.
-shelly_host: '192.168.1.111'
+shelly_host: "192.168.1.111"
 
 # Gen4 firmware exposes a single switch component, and its digest auth user is
 # always 'admin'. Only the password is a secret, and it lives in
 # group_vars/bastion.sops.yml rather than here.
 shelly_user: admin
 shelly_switch_id: 0
+
+# The control node is where sops encrypts new secrets, so it is where those
+# files get committed from, and git refuses to commit without an identity.
+git_user_name: jeremyshawnjackson
+git_user_email: 9703638+jeremyshawnjackson@users.noreply.github.com

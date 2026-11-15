@@ -1,6 +1,15 @@
 ---
-# Secrets tooling comes first: the Argo CD bootstrap later depends on an age
-# identity existing on this host.
+# The control node is where sops encrypts new secrets, so it is also where
+# those files are committed from. Its git identity is configured before
+# anything else here needs it.
+- name: Repository identity
+  hosts: bastion
+  become: false
+  roles:
+    - git_identity
+
+# Secrets tooling comes before the bootstrap: the Argo CD install depends on
+# an age identity existing on this host.
 - name: Secrets tooling
   hosts: bastion
   become: true
